@@ -149,8 +149,8 @@
                 document.getElementById('route-count').textContent = (stats.routes || 0).toLocaleString();
                 document.getElementById('airport-count').textContent = (stats.airports || 0).toLocaleString();
                 
-                // Load top airports for initial view
-                const data = await api('/airports?limit=2500');
+                // Load all airports with routes
+                const data = await api('/airports?has_routes=true&limit=2500');
                 showAirportsOnMap(data.airports);
                 
                 // Cache aircraft types
@@ -296,7 +296,7 @@
             try {
                 const [airportData, routesData] = await Promise.all([
                     api(`/airports/${iata}`),
-                    api(`/airports/${iata}/routes?limit=100`)
+                    api(`/airports/${iata}/routes?direction=out&limit=100`)
                 ]);
                 
                 const airport = airportData.airport;
@@ -555,7 +555,7 @@
         async function closeInfoPanel() {
             document.getElementById('info-panel').classList.remove('visible');
             navStack = [];
-            const data = await api('/airports?limit=2500');
+            const data = await api('/airports?has_routes=true&limit=2500');
             showAirportsOnMap(data.airports);
         }
         

@@ -17,11 +17,13 @@ def list_airports():
     Query params:
         q: Search query (searches iata, name, city)
         country: Filter by country code
+        has_routes: If 'true', only return airports with routes
         limit: Max results (default 50, max 3000)
         offset: Pagination offset
     """
     q = request.args.get('q', '').strip()
     country = request.args.get('country', '').strip().upper()
+    has_routes = request.args.get('has_routes', '').lower() == 'true'
     limit = min(int(request.args.get('limit', 50)), 3000)
     offset = int(request.args.get('offset', 0))
     
@@ -36,6 +38,9 @@ def list_airports():
     if country:
         conditions.append("country = %s")
         params.append(country)
+    
+    if has_routes:
+        conditions.append("route_count > 0")
     
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     
@@ -98,13 +103,13 @@ def get_airport_routes(iata):
     Get routes from/to an airport.
     
     Query params:
-        direction: 'out' (from), 'in' (to), or 'both' (default)
+        direction: 'out' (from airport), 'in' (to airport), 'both' (default)
         sort: 'passengers', 'freight', 'distance' (default: passengers)
         limit: Max results (default 50, max 200)
         offset: Pagination offset
     """
     iata = iata.upper()
-    direction = request.args.get('direction', 'both')
+    direction = request.args.get('direction', 'out')
     sort = request.args.get('sort', 'passengers')
     limit = min(int(request.args.get('limit', 50)), 200)
     offset = int(request.args.get('offset', 0))
