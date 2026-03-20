@@ -398,14 +398,18 @@
                 const route = routeData.route;
                 const carriers = carriersData.carriers;
                 
-                navStack = [{ type: 'airport', iata: fromIata }, { type: 'route', from: fromIata, to: toIata }];
+                // Use actual route direction from API (may differ from requested)
+                const origin = route.origin;
+                const dest = route.dest;
+                
+                navStack = [{ type: 'airport', iata: origin }, { type: 'route', from: origin, to: dest }];
                 clearMap();
                 
                 // Draw markers
                 const fromCoords = [route.origin_lat, route.origin_lon];
                 const toCoords = [route.dest_lat, route.dest_lon];
                 
-                for (const [code, coords] of [[route.origin, fromCoords], [route.dest, toCoords]]) {
+                for (const [code, coords] of [[origin, fromCoords], [dest, toCoords]]) {
                     const marker = L.circleMarker(coords, { 
                         radius: 10, fillColor: '#00ff88', fillOpacity: 0.9, color: '#fff', weight: 2, opacity: 0.9 
                     });
@@ -426,10 +430,10 @@
                 let html = '<button class="close-btn" onclick="closeInfoPanel()">×</button>';
                 html += '<button class="back-btn visible" onclick="goBack()">← Back</button>';
                 
-                html += `<div class="breadcrumb"><span onclick="selectAirport('${fromIata}')">${fromIata}</span> → <span class="current">${toIata}</span></div>`;
-                html += `<div class="airport-code">${route.origin} → ${route.dest}</div>`;
+                html += `<div class="breadcrumb"><span onclick="selectAirport('${origin}')">${origin}</span> → <span class="current">${dest}</span></div>`;
+                html += `<div class="airport-code">${origin} → ${dest}</div>`;
                 html += `<div class="airport-name">${route.origin_city || ''} to ${route.dest_city || ''}</div>`;
-                html += `<button class="reverse-btn" onclick="selectRoute('${route.dest}', '${route.origin}')">⇄ View ${route.dest} → ${route.origin}</button>`;
+                html += `<button class="reverse-btn" onclick="selectRoute('${dest}', '${origin}')">⇄ View ${dest} → ${origin}</button>`;
                 
                 html += '<div class="stat-grid" style="margin-top:15px;">';
                 html += `<div class="stat-box"><div class="value">${formatNum(route.passengers)}</div><div class="label">Passengers</div></div>`;
@@ -449,7 +453,7 @@
                 html += '<div class="list-container">';
                 for (const carrier of carriers) {
                     const pct = route.passengers > 0 ? Math.round((carrier.passengers / route.passengers) * 100) : 0;
-                    html += `<div class="carrier-item" onclick="selectCarrier('${fromIata}', '${toIata}', '${carrier.carrier_code}')">`;
+                    html += `<div class="carrier-item" onclick="selectCarrier('${origin}', '${dest}', '${carrier.carrier_code}')">`;
                     html += `<div><span class="carrier-code">${carrier.carrier_code}</span></div>`;
                     html += `<div class="carrier-name">${carrier.carrier_name || 'Unknown'}</div>`;
                     html += `<div class="carrier-stats">`;
@@ -525,15 +529,29 @@
                     html += '</div>';
                 }
                 
-                const acTypes = carrier.aircraft_types || {};
-                const acEntries = Object.entries(acTypes).sort((a, b) => b[1] - a[1]); // Sort by count desc
+                let acTypes = carrier.aircraft_types || {};
+                
+                // Handle both old format (array) and new format (dict with counts)
+                let acEntries = [];
+                if (Array.isArray(acTypes)) {
+                    // Old format: ["724", "678"] - no counts available
+                    acEntries = acTypes.map(ac => [ac, null]);
+                } else {
+                    // New format: {"724": 500, "678": 300} - has flight counts
+                    acEntries = Object.entries(acTypes).sort((a, b) => b[1] - a[1]);
+                }
+                
                 if (acEntries.length > 0) {
                     html += '<div class="aircraft-section">';
                     html += '<h4>Aircraft Types</h4>';
                     html += '<div class="aircraft-list">';
                     for (const [ac, count] of acEntries) {
                         const acName = aircraftCache[ac] || ac;
-                        html += `<div class="aircraft-tag" title="Code: ${ac}">${acName} <span style="opacity:0.7">(${formatNum(count)})</span></div>`;
+                        if (count !== null) {
+                            html += `<div class="aircraft-tag" title="Code: ${ac}">${acName} <span style="opacity:0.7">(${formatNum(count)})</span></div>`;
+                        } else {
+                            html += `<div class="aircraft-tag" title="Code: ${ac}">${acName}</div>`;
+                        }
                     }
                     html += '</div></div>';
                 }

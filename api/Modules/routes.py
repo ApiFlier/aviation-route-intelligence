@@ -94,7 +94,7 @@ def get_route(origin, dest):
     origin = origin.upper()
     dest = dest.upper()
     
-    # Try both directions
+    # Try requested direction first
     route = db.execute_one("""
         SELECT 
             r.*,
@@ -105,8 +105,23 @@ def get_route(origin, dest):
         FROM routes r
         JOIN airports ao ON r.origin = ao.iata
         JOIN airports ad ON r.dest = ad.iata
-        WHERE (r.origin = %s AND r.dest = %s) OR (r.origin = %s AND r.dest = %s)
-    """, (origin, dest, dest, origin))
+        WHERE r.origin = %s AND r.dest = %s
+    """, (origin, dest))
+    
+    # If not found, try reverse direction
+    if not route:
+        route = db.execute_one("""
+            SELECT 
+                r.*,
+                ao.name as origin_name, ao.city as origin_city, ao.country as origin_country,
+                ao.lat as origin_lat, ao.lon as origin_lon,
+                ad.name as dest_name, ad.city as dest_city, ad.country as dest_country,
+                ad.lat as dest_lat, ad.lon as dest_lon
+            FROM routes r
+            JOIN airports ao ON r.origin = ao.iata
+            JOIN airports ad ON r.dest = ad.iata
+            WHERE r.origin = %s AND r.dest = %s
+        """, (dest, origin))
     
     if not route:
         return jsonify({'error': 'Route not found'}), 404
@@ -120,11 +135,18 @@ def get_route_carriers(origin, dest):
     origin = origin.upper()
     dest = dest.upper()
     
-    # Get route ID (check both directions)
-    route = db.execute_one("""
-        SELECT id FROM routes 
-        WHERE (origin = %s AND dest = %s) OR (origin = %s AND dest = %s)
-    """, (origin, dest, dest, origin))
+    # Try requested direction first
+    route = db.execute_one(
+        "SELECT id FROM routes WHERE origin = %s AND dest = %s",
+        (origin, dest)
+    )
+    
+    # If not found, try reverse direction
+    if not route:
+        route = db.execute_one(
+            "SELECT id FROM routes WHERE origin = %s AND dest = %s",
+            (dest, origin)
+        )
     
     if not route:
         return jsonify({'error': 'Route not found'}), 404
