@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlightConn - Flight Routes</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; }
+        #map { width: 100%; height: calc(100vh - 60px); }
+        .header { height: 60px; background: #16213e; display: flex; align-items: center; padding: 0 20px; gap: 20px; }
+        .header h1 { font-size: 1.4rem; font-weight: 600; color: #00d9ff; }
+        .search-box { display: flex; gap: 10px; flex: 1; max-width: 500px; position: relative; }
+        .search-box input { flex: 1; padding: 8px 12px; border: 1px solid #0f3460; border-radius: 6px; background: #1a1a2e; color: #eee; font-size: 14px; }
+        .search-box input:focus { outline: none; border-color: #00d9ff; }
+        .search-box button { padding: 8px 16px; background: #00d9ff; color: #1a1a2e; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .autocomplete { position: absolute; top: 100%; left: 0; right: 60px; background: #16213e; border: 1px solid #0f3460; border-radius: 6px; max-height: 300px; overflow-y: auto; z-index: 2000; display: none; margin-top: 4px; }
+        .autocomplete.visible { display: block; }
+        .autocomplete-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #0f3460; }
+        .autocomplete-item:last-child { border-bottom: none; }
+        .autocomplete-item:hover, .autocomplete-item.selected { background: #0f3460; }
+        .autocomplete-item .code { color: #00d9ff; font-weight: 700; font-size: 1.1rem; }
+        .autocomplete-item .name { color: #ccc; font-size: 0.85rem; margin-top: 2px; }
+        .autocomplete-item .routes { color: #888; font-size: 0.75rem; }
+        .stats { margin-left: auto; font-size: 0.9rem; color: #888; }
+        .stats span { color: #00d9ff; font-weight: 600; }
+        
+        .info-panel { position: absolute; top: 80px; right: 20px; background: rgba(22, 33, 62, 0.95); border-radius: 8px; padding: 15px; min-width: 340px; max-width: 400px; max-height: calc(100vh - 160px); overflow-y: auto; z-index: 1000; display: none; border: 1px solid #0f3460; }
+        .info-panel.visible { display: block; }
+        .info-panel .airport-code { font-size: 1.8rem; font-weight: 700; color: #00d9ff; }
+        .info-panel .airport-name { color: #ccc; font-size: 0.9rem; }
+        .info-panel .close-btn { position: absolute; top: 10px; right: 10px; background: none; border: none; color: #888; font-size: 1.2rem; cursor: pointer; }
+        .info-panel .back-btn { background: #0f3460; border: none; color: #00d9ff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; display: none; margin-bottom: 10px; }
+        .info-panel .back-btn.visible { display: inline-block; }
+        
+        .breadcrumb { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 0.8rem; color: #888; flex-wrap: wrap; }
+        .breadcrumb span { cursor: pointer; color: #00d9ff; }
+        .breadcrumb span:hover { text-decoration: underline; }
+        .breadcrumb span.current { color: #fff; cursor: default; }
+        .breadcrumb span.current:hover { text-decoration: none; }
+        
+        .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 15px; }
+        .stat-box { background: #1a1a2e; border-radius: 6px; padding: 10px; text-align: center; }
+        .stat-box .value { font-size: 1.2rem; font-weight: 700; color: #00d9ff; }
+        .stat-box .label { font-size: 0.65rem; color: #888; text-transform: uppercase; margin-top: 2px; }
+        .stat-box.green .value { color: #00ff88; }
+        .stat-box.orange .value { color: #ff9800; }
+        .stat-box.purple .value { color: #9c27b0; }
+        
+        .list-header { color: #888; font-size: 0.75rem; text-transform: uppercase; margin: 15px 0 8px 0; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
+        .list-container { max-height: 300px; overflow-y: auto; }
+        
+        .route-item, .carrier-item { padding: 10px; margin: 4px 0; background: #1a1a2e; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
+        .route-item:hover, .carrier-item:hover { background: #0f3460; }
+        .route-item .dest-code, .carrier-item .carrier-code { color: #00d9ff; font-weight: 700; font-size: 1rem; }
+        .route-item .dest-name, .carrier-item .carrier-name { color: #ccc; font-size: 0.8rem; margin-top: 2px; }
+        .route-item .route-stats, .carrier-item .carrier-stats { display: flex; gap: 15px; margin-top: 6px; font-size: 0.75rem; }
+        .route-item .route-stats span, .carrier-item .carrier-stats span { color: #888; }
+        .route-item .route-stats strong, .carrier-item .carrier-stats strong { color: #fff; }
+        .route-type { font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; margin-left: 8px; }
+        .route-type.freight { background: #ff9800; color: #000; }
+        .route-type.mixed { background: #9c27b0; color: #fff; }
+        .route-type.intl { background: #00bcd4; color: #000; }
+        
+        .carrier-detail h3 { color: #00d9ff; font-size: 1.1rem; margin-bottom: 5px; }
+        .carrier-detail .carrier-full-name { color: #ccc; font-size: 0.85rem; margin-bottom: 15px; }
+        
+        .aircraft-section { margin-top: 15px; }
+        .aircraft-section h4 { color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px; }
+        .aircraft-list { display: flex; flex-wrap: wrap; gap: 6px; }
+        .aircraft-tag { background: #0f3460; color: #00d9ff; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; }
+        
+        .load-more { width: 100%; padding: 10px; background: #0f3460; border: none; color: #00d9ff; border-radius: 6px; cursor: pointer; margin-top: 10px; font-size: 0.85rem; }
+        .load-more:hover { background: #1a4a7a; }
+        .load-more:disabled { opacity: 0.5; cursor: default; }
+        
+        .loading { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26, 26, 46, 0.9); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+        .loading.hidden { display: none; }
+        .loading-text { font-size: 1.2rem; color: #00d9ff; }
+        .leaflet-container { background: #1a1a2e; }
+        
+        .layer-toggle { position: absolute; bottom: 30px; left: 10px; z-index: 1000; background: rgba(22, 33, 62, 0.95); padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; }
+        .layer-toggle button { background: #0f3460; border: none; color: #00d9ff; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; margin: 0 2px; }
+        .layer-toggle button.active { background: #00d9ff; color: #1a1a2e; }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading"><div class="loading-text">Loading flight data...</div></div>
+    <div class="header">
+        <h1>✈️ FlightConn</h1>
+        <div class="search-box">
+            <input type="text" id="airport-search" placeholder="Search airport code or city..." autocomplete="off">
+            <button onclick="searchAirport()">Go</button>
+            <div class="autocomplete" id="autocomplete"></div>
+        </div>
+        <div class="stats"><span id="route-count">0</span> routes • <span id="airport-count">0</span> airports</div>
+    </div>
+    <div id="map"></div>
+    <div class="layer-toggle">
+        <button id="btn-hybrid" class="active" onclick="setLayer('hybrid')">Hybrid</button>
+        <button id="btn-satellite" onclick="setLayer('satellite')">Satellite</button>
+        <button id="btn-dark" onclick="setLayer('dark')">Dark</button>
+        <button id="btn-streets" onclick="setLayer('streets')">Streets</button>
+    </div>
+    <div class="info-panel" id="info-panel"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="config.js"></script>
+    <script>
+        let map, mapLayer = null, currentBaseLayers = [];
+        let selectedIndex = -1, searchResults = [], navStack = [];
+        let aircraftCache = {};
+        
+        // API helper
+        async function api(endpoint) {
+            const res = await fetch(`${CONFIG.API_URL}${endpoint}`);
+            if (!res.ok) throw new Error(`API error: ${res.status}`);
+            return res.json();
+        }
+        
+        // Map layers
+        const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri', maxZoom: 19 });
+        const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { attribution: '', maxZoom: 19 });
+        const roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { attribution: '', maxZoom: 19 });
+        const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: 'CARTO', subdomains: 'abcd', maxZoom: 19 });
+        const streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'OSM', maxZoom: 19 });
+        
+        function setLayer(name) {
+            currentBaseLayers.forEach(l => map.removeLayer(l));
+            currentBaseLayers = [];
+            if (name === 'hybrid') { satellite.addTo(map); roads.addTo(map); labels.addTo(map); currentBaseLayers = [satellite, roads, labels]; }
+            else if (name === 'satellite') { satellite.addTo(map); currentBaseLayers = [satellite]; }
+            else if (name === 'dark') { dark.addTo(map); currentBaseLayers = [dark]; }
+            else if (name === 'streets') { streets.addTo(map); currentBaseLayers = [streets]; }
+            map.addLayer(mapLayer);
+            document.querySelectorAll('.layer-toggle button').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-' + name).classList.add('active');
+        }
+        
+        function initMap() {
+            map = L.map('map', { center: CONFIG.DEFAULT_CENTER, zoom: CONFIG.DEFAULT_ZOOM, minZoom: 2, maxZoom: 18 });
+            mapLayer = L.layerGroup().addTo(map);
+            setLayer('hybrid');
+        }
+        
+        async function loadInitialData() {
+            try {
+                const stats = await api('/stats');
+                document.getElementById('route-count').textContent = (stats.routes || 0).toLocaleString();
+                document.getElementById('airport-count').textContent = (stats.airports || 0).toLocaleString();
+                
+                // Load top airports for initial view
+                const data = await api('/airports?limit=2500');
+                showAirportsOnMap(data.airports);
+                
+                // Cache aircraft types
+                const acData = await api('/aircraft?limit=500');
+                acData.aircraft.forEach(ac => aircraftCache[ac.type_id] = ac.short_name || ac.long_name || ac.type_id);
+                
+                document.getElementById('loading').classList.add('hidden');
+            } catch (err) {
+                console.error('Failed to load data:', err);
+                document.querySelector('.loading-text').textContent = 'Failed to load data: ' + err.message;
+            }
+        }
+        
+        function showAirportsOnMap(airports) {
+            clearMap();
+            for (const apt of airports) {
+                if (!apt.lat || !apt.lon) continue;
+                const size = Math.min(Math.max(apt.route_count / 10, 4), 12);
+                const marker = L.circleMarker([apt.lat, apt.lon], { 
+                    radius: size, fillColor: '#00d9ff', fillOpacity: 0.7, color: '#fff', weight: 1, opacity: 0.9 
+                });
+                marker.bindTooltip(apt.iata, { permanent: false, direction: 'top' });
+                marker.on('click', () => selectAirport(apt.iata));
+                mapLayer.addLayer(marker);
+            }
+        }
+        
+        // Autocomplete
+        let searchTimeout;
+        async function doAutocomplete(query) {
+            const ac = document.getElementById('autocomplete');
+            if (!query || query.length < 2) { ac.classList.remove('visible'); searchResults = []; return; }
+            
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const data = await api(`/airports?q=${encodeURIComponent(query)}&limit=8`);
+                    searchResults = data.airports;
+                    selectedIndex = -1;
+                    
+                    if (searchResults.length === 0) { ac.classList.remove('visible'); return; }
+                    
+                    ac.innerHTML = searchResults.map((apt, i) => 
+                        `<div class="autocomplete-item" data-index="${i}" data-iata="${apt.iata}">
+                            <div class="code">${apt.iata}</div>
+                            <div class="name">${apt.name || ''}, ${apt.city || ''}</div>
+                            <div class="routes">${apt.route_count || 0} routes</div>
+                        </div>`
+                    ).join('');
+                    ac.classList.add('visible');
+                    
+                    ac.querySelectorAll('.autocomplete-item').forEach(item => { 
+                        item.onclick = () => { 
+                            selectAirport(item.dataset.iata); 
+                            document.getElementById('airport-search').value = ''; 
+                            ac.classList.remove('visible'); 
+                        }; 
+                    });
+                } catch (err) {
+                    console.error('Search error:', err);
+                }
+            }, 150);
+        }
+        
+        function highlightItem(index) { 
+            const items = document.querySelectorAll('.autocomplete-item'); 
+            items.forEach((item, i) => item.classList.toggle('selected', i === index)); 
+            if (items[index]) items[index].scrollIntoView({ block: 'nearest' }); 
+        }
+        
+        const searchInput = document.getElementById('airport-search');
+        searchInput.addEventListener('input', (e) => doAutocomplete(e.target.value));
+        searchInput.addEventListener('keydown', (e) => {
+            const ac = document.getElementById('autocomplete');
+            if (!ac.classList.contains('visible')) { if (e.key === 'Enter') searchAirport(); return; }
+            if (e.key === 'ArrowDown') { e.preventDefault(); selectedIndex = Math.min(selectedIndex + 1, searchResults.length - 1); highlightItem(selectedIndex); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIndex = Math.max(selectedIndex - 1, 0); highlightItem(selectedIndex); }
+            else if (e.key === 'Enter') { e.preventDefault(); if (selectedIndex >= 0 && searchResults[selectedIndex]) { selectAirport(searchResults[selectedIndex].iata); searchInput.value = ''; ac.classList.remove('visible'); } else { searchAirport(); } }
+            else if (e.key === 'Escape') { ac.classList.remove('visible'); }
+        });
+        document.addEventListener('click', (e) => { if (!e.target.closest('.search-box')) document.getElementById('autocomplete').classList.remove('visible'); });
+        
+        async function searchAirport() {
+            const input = document.getElementById('airport-search');
+            const query = input.value.trim();
+            document.getElementById('autocomplete').classList.remove('visible');
+            
+            if (!query) return;
+            
+            // Try exact match first
+            try {
+                const data = await api(`/airports?q=${encodeURIComponent(query)}&limit=1`);
+                if (data.airports.length > 0) {
+                    selectAirport(data.airports[0].iata);
+                    input.value = '';
+                } else {
+                    alert('Airport not found.');
+                }
+            } catch (err) {
+                alert('Search failed: ' + err.message);
+            }
+        }
+        
+        function clearMap() { mapLayer.clearLayers(); }
+        
+        function formatNum(n) {
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return (n || 0).toLocaleString();
+        }
+        
+        function getRouteType(route) {
+            const pax = route.passengers || 0, freight = route.freight || 0;
+            if (pax > 0 && freight > 0) return 'mixed';
+            if (pax > 0) return 'passenger';
+            if (freight > 0) return 'freight';
+            return 'unknown';
+        }
+        
+        function drawArc(start, end, passengers, routeType, highlight) {
+            const latlngs = [];
+            const offsetX = end[1] - start[1], offsetY = end[0] - start[0];
+            const midLat = (start[0] + end[0]) / 2, midLon = (start[1] + end[1]) / 2;
+            const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY) || 1;
+            const curvature = distance * 0.15;
+            const perpX = -offsetY / distance * curvature, perpY = offsetX / distance * curvature;
+            for (let i = 0; i <= 50; i++) { 
+                const t = i / 50; 
+                latlngs.push([
+                    start[0]*(1-t)*(1-t) + 2*(midLat+perpX)*t*(1-t) + end[0]*t*t, 
+                    start[1]*(1-t)*(1-t) + 2*(midLon+perpY)*t*(1-t) + end[1]*t*t
+                ]); 
+            }
+            let color = '#00d9ff';
+            if (routeType === 'freight') color = '#ff9800';
+            else if (routeType === 'mixed') color = '#9c27b0';
+            const weight = highlight ? 4 : Math.min(Math.max(Math.log10(passengers + 1) - 2, 0.5), 4);
+            return L.polyline(latlngs, { color, weight, opacity: highlight ? 0.9 : 0.5 });
+        }
+        
+        // LEVEL 1: Airport View
+        async function selectAirport(iata) {
+            try {
+                const [airportData, routesData] = await Promise.all([
+                    api(`/airports/${iata}`),
+                    api(`/airports/${iata}/routes?limit=100`)
+                ]);
+                
+                const airport = airportData.airport;
+                const stats = airportData.stats;
+                const routes = routesData.routes;
+                
+                navStack = [{ type: 'airport', iata }];
+                clearMap();
+                
+                // Draw airport marker
+                const marker = L.circleMarker([airport.lat, airport.lon], { 
+                    radius: 12, fillColor: '#00ff88', fillOpacity: 0.9, color: '#fff', weight: 2, opacity: 0.9 
+                });
+                marker.bindTooltip(iata, { permanent: true, direction: 'top' });
+                mapLayer.addLayer(marker);
+                
+                // Draw routes and destination markers
+                for (const route of routes) {
+                    const destLat = route.dest === iata ? route.origin_lat : route.dest_lat;
+                    const destLon = route.dest === iata ? route.origin_lon : route.dest_lon;
+                    const destCode = route.dest === iata ? route.origin : route.dest;
+                    
+                    if (destLat && destLon) {
+                        // Destination marker
+                        const destMarker = L.circleMarker([destLat, destLon], { 
+                            radius: 6, fillColor: '#00d9ff', fillOpacity: 0.7, color: '#fff', weight: 1, opacity: 0.9 
+                        });
+                        destMarker.bindTooltip(destCode, { permanent: false, direction: 'top' });
+                        destMarker.on('click', () => selectRoute(iata, destCode));
+                        mapLayer.addLayer(destMarker);
+                        
+                        // Route arc
+                        mapLayer.addLayer(drawArc([airport.lat, airport.lon], [destLat, destLon], route.passengers, getRouteType(route)));
+                    }
+                }
+                
+                // Build panel
+                let html = '<button class="close-btn" onclick="closeInfoPanel()">×</button>';
+                html += `<div class="airport-code">${iata}</div>`;
+                html += `<div class="airport-name">${airport.name || ''}, ${airport.city || ''}</div>`;
+                if (airport.country && airport.country !== 'US') {
+                    html += `<div style="color:#00bcd4;font-size:0.8rem;margin-top:4px;">${airport.country}</div>`;
+                }
+                
+                html += '<div class="stat-grid" style="margin-top:15px;">';
+                html += `<div class="stat-box"><div class="value">${stats.route_count || 0}</div><div class="label">Destinations</div></div>`;
+                html += `<div class="stat-box"><div class="value">${formatNum(stats.total_passengers)}</div><div class="label">Passengers/yr</div></div>`;
+                html += `<div class="stat-box"><div class="value">${stats.carrier_count || 0}</div><div class="label">Airlines</div></div>`;
+                html += '</div>';
+                
+                html += `<div class="list-header">Routes (${routesData.total})</div>`;
+                html += '<div class="list-container">';
+                for (const route of routes) {
+                    const destCode = route.dest === iata ? route.origin : route.dest;
+                    const destCity = route.dest === iata ? route.origin_city : route.dest_city;
+                    const destCountry = route.dest === iata ? route.origin_country : route.dest_country;
+                    const routeType = getRouteType(route);
+                    
+                    let badge = '';
+                    if (routeType === 'freight') badge = '<span class="route-type freight">Cargo</span>';
+                    else if (routeType === 'mixed') badge = '<span class="route-type mixed">Mixed</span>';
+                    if (destCountry && destCountry !== 'US') badge += '<span class="route-type intl">Intl</span>';
+                    
+                    html += `<div class="route-item" onclick="selectRoute('${iata}', '${destCode}')">`;
+                    html += `<div><span class="dest-code">${destCode}</span>${badge}</div>`;
+                    html += `<div class="dest-name">${destCity || ''}</div>`;
+                    html += `<div class="route-stats"><span>Pax: <strong>${formatNum(route.passengers)}</strong></span>`;
+                    html += `<span>Airlines: <strong>${route.carrier_count || 0}</strong></span>`;
+                    html += `<span>${route.distance || 0} mi</span></div></div>`;
+                }
+                html += '</div>';
+                
+                if (routesData.total > routes.length) {
+                    html += `<button class="load-more" onclick="loadMoreRoutes('${iata}', ${routes.length})">Load More (${routesData.total - routes.length} remaining)</button>`;
+                }
+                
+                const panel = document.getElementById('info-panel');
+                panel.innerHTML = html;
+                panel.classList.add('visible');
+                
+                map.flyTo([airport.lat, airport.lon], 5);
+            } catch (err) {
+                console.error('Failed to load airport:', err);
+                alert('Failed to load airport: ' + err.message);
+            }
+        }
+        
+        // LEVEL 2: Route View
+        async function selectRoute(fromIata, toIata) {
+            try {
+                const [routeData, carriersData] = await Promise.all([
+                    api(`/routes/${fromIata}/${toIata}`),
+                    api(`/routes/${fromIata}/${toIata}/carriers`)
+                ]);
+                
+                const route = routeData.route;
+                const carriers = carriersData.carriers;
+                
+                navStack = [{ type: 'airport', iata: fromIata }, { type: 'route', from: fromIata, to: toIata }];
+                clearMap();
+                
+                // Draw markers
+                const fromCoords = [route.origin_lat, route.origin_lon];
+                const toCoords = [route.dest_lat, route.dest_lon];
+                
+                for (const [code, coords] of [[route.origin, fromCoords], [route.dest, toCoords]]) {
+                    const marker = L.circleMarker(coords, { 
+                        radius: 10, fillColor: '#00ff88', fillOpacity: 0.9, color: '#fff', weight: 2, opacity: 0.9 
+                    });
+                    marker.bindTooltip(code, { permanent: true, direction: 'top' });
+                    mapLayer.addLayer(marker);
+                }
+                mapLayer.addLayer(drawArc(fromCoords, toCoords, route.passengers, getRouteType(route), true));
+                
+                // Calculate totals
+                let totalFlights = 0, totalSeats = 0;
+                for (const c of carriers) {
+                    totalFlights += c.departures_performed || 0;
+                    totalSeats += c.seats || 0;
+                }
+                const loadFactor = totalSeats > 0 ? Math.round((route.passengers / totalSeats) * 100) : 0;
+                
+                // Build panel
+                let html = '<button class="close-btn" onclick="closeInfoPanel()">×</button>';
+                html += '<button class="back-btn visible" onclick="goBack()">← Back</button>';
+                
+                html += `<div class="breadcrumb"><span onclick="selectAirport('${fromIata}')">${fromIata}</span> → <span class="current">${toIata}</span></div>`;
+                html += `<div class="airport-code">${route.origin} → ${route.dest}</div>`;
+                html += `<div class="airport-name">${route.origin_city || ''} to ${route.dest_city || ''}</div>`;
+                
+                html += '<div class="stat-grid" style="margin-top:15px;">';
+                html += `<div class="stat-box"><div class="value">${formatNum(route.passengers)}</div><div class="label">Passengers</div></div>`;
+                html += `<div class="stat-box orange"><div class="value">${formatNum(route.freight)}</div><div class="label">Freight lbs</div></div>`;
+                html += `<div class="stat-box green"><div class="value">${route.distance || 0}</div><div class="label">Miles</div></div>`;
+                html += '</div>';
+                
+                if (totalFlights > 0) {
+                    html += '<div class="stat-grid">';
+                    html += `<div class="stat-box"><div class="value">${formatNum(totalFlights)}</div><div class="label">Flights/yr</div></div>`;
+                    html += `<div class="stat-box"><div class="value">${formatNum(totalSeats)}</div><div class="label">Seats</div></div>`;
+                    html += `<div class="stat-box green"><div class="value">${loadFactor}%</div><div class="label">Load Factor</div></div>`;
+                    html += '</div>';
+                }
+                
+                html += `<div class="list-header">Airlines (${carriers.length})</div>`;
+                html += '<div class="list-container">';
+                for (const carrier of carriers) {
+                    const pct = route.passengers > 0 ? Math.round((carrier.passengers / route.passengers) * 100) : 0;
+                    html += `<div class="carrier-item" onclick="selectCarrier('${fromIata}', '${toIata}', '${carrier.carrier_code}')">`;
+                    html += `<div><span class="carrier-code">${carrier.carrier_code}</span></div>`;
+                    html += `<div class="carrier-name">${carrier.carrier_name || 'Unknown'}</div>`;
+                    html += `<div class="carrier-stats">`;
+                    html += `<span>Pax: <strong>${formatNum(carrier.passengers)}</strong> (${pct}%)</span>`;
+                    if (carrier.departures_performed) html += `<span>Flights: <strong>${formatNum(carrier.departures_performed)}</strong></span>`;
+                    html += `</div></div>`;
+                }
+                html += '</div>';
+                
+                const panel = document.getElementById('info-panel');
+                panel.innerHTML = html;
+                panel.classList.add('visible');
+                
+                const bounds = L.latLngBounds(fromCoords, toCoords);
+                map.fitBounds(bounds, { padding: [100, 100] });
+            } catch (err) {
+                console.error('Failed to load route:', err);
+                alert('Failed to load route: ' + err.message);
+            }
+        }
+        
+        // LEVEL 3: Carrier Detail
+        async function selectCarrier(fromIata, toIata, carrierCode) {
+            try {
+                const carriersData = await api(`/routes/${fromIata}/${toIata}/carriers`);
+                const carrier = carriersData.carriers.find(c => c.carrier_code === carrierCode);
+                
+                if (!carrier) {
+                    alert('Carrier not found');
+                    return;
+                }
+                
+                navStack = [
+                    { type: 'airport', iata: fromIata }, 
+                    { type: 'route', from: fromIata, to: toIata }, 
+                    { type: 'carrier', from: fromIata, to: toIata, code: carrierCode }
+                ];
+                
+                const reliability = carrier.departures_scheduled > 0 ? Math.round((carrier.departures_performed / carrier.departures_scheduled) * 100) : 0;
+                const loadFactor = carrier.seats > 0 ? Math.round((carrier.passengers / carrier.seats) * 100) : 0;
+                const avgAirTime = carrier.departures_performed > 0 ? Math.round(carrier.air_time / carrier.departures_performed) : 0;
+                
+                // Build panel
+                let html = '<button class="close-btn" onclick="closeInfoPanel()">×</button>';
+                html += '<button class="back-btn visible" onclick="goBack()">← Back</button>';
+                
+                html += `<div class="breadcrumb">`;
+                html += `<span onclick="selectAirport('${fromIata}')">${fromIata}</span> → `;
+                html += `<span onclick="selectRoute('${fromIata}', '${toIata}')">${toIata}</span> → `;
+                html += `<span class="current">${carrierCode}</span>`;
+                html += `</div>`;
+                
+                html += `<div class="carrier-detail"><h3>${carrierCode}</h3>`;
+                html += `<div class="carrier-full-name">${carrier.carrier_name || 'Unknown Carrier'}</div></div>`;
+                
+                html += '<div class="stat-grid">';
+                html += `<div class="stat-box"><div class="value">${formatNum(carrier.passengers)}</div><div class="label">Passengers</div></div>`;
+                html += `<div class="stat-box orange"><div class="value">${formatNum(carrier.freight)}</div><div class="label">Freight lbs</div></div>`;
+                html += `<div class="stat-box purple"><div class="value">${formatNum(carrier.mail)}</div><div class="label">Mail lbs</div></div>`;
+                html += '</div>';
+                
+                if (carrier.departures_scheduled > 0 || carrier.departures_performed > 0) {
+                    html += '<div class="stat-grid">';
+                    html += `<div class="stat-box"><div class="value">${formatNum(carrier.departures_scheduled)}</div><div class="label">Scheduled</div></div>`;
+                    html += `<div class="stat-box green"><div class="value">${formatNum(carrier.departures_performed)}</div><div class="label">Performed</div></div>`;
+                    html += `<div class="stat-box"><div class="value">${reliability}%</div><div class="label">Reliability</div></div>`;
+                    html += '</div>';
+                    
+                    html += '<div class="stat-grid">';
+                    html += `<div class="stat-box"><div class="value">${formatNum(carrier.seats)}</div><div class="label">Total Seats</div></div>`;
+                    html += `<div class="stat-box green"><div class="value">${loadFactor}%</div><div class="label">Load Factor</div></div>`;
+                    html += `<div class="stat-box"><div class="value">${avgAirTime} min</div><div class="label">Avg Flight Time</div></div>`;
+                    html += '</div>';
+                }
+                
+                const acTypes = carrier.aircraft_types || [];
+                if (acTypes.length > 0) {
+                    html += '<div class="aircraft-section">';
+                    html += '<h4>Aircraft Types</h4>';
+                    html += '<div class="aircraft-list">';
+                    for (const ac of acTypes) {
+                        const acName = aircraftCache[ac] || ac;
+                        html += `<div class="aircraft-tag" title="Code: ${ac}">${acName}</div>`;
+                    }
+                    html += '</div></div>';
+                }
+                
+                const panel = document.getElementById('info-panel');
+                panel.innerHTML = html;
+                panel.classList.add('visible');
+            } catch (err) {
+                console.error('Failed to load carrier:', err);
+                alert('Failed to load carrier: ' + err.message);
+            }
+        }
+        
+        function goBack() {
+            if (navStack.length > 1) {
+                navStack.pop();
+                const prev = navStack[navStack.length - 1];
+                navStack.pop();
+                if (prev.type === 'airport') selectAirport(prev.iata);
+                else if (prev.type === 'route') selectRoute(prev.from, prev.to);
+            }
+        }
+        
+        async function closeInfoPanel() {
+            document.getElementById('info-panel').classList.remove('visible');
+            navStack = [];
+            const data = await api('/airports?limit=2500');
+            showAirportsOnMap(data.airports);
+        }
+        
+        initMap();
+        loadInitialData();
+    </script>
+</body>
+</html>
