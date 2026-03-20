@@ -234,7 +234,7 @@ class DataProcessor:
                         'name': carrier_name,
                         'passengers': 0, 'freight': 0, 'mail': 0,
                         'departures_scheduled': 0, 'departures_performed': 0,
-                        'seats': 0, 'air_time': 0, 'aircraft_types': set()
+                        'seats': 0, 'air_time': 0, 'aircraft_types': {}
                     }
                 
                 c = route['carriers'][carrier]
@@ -283,7 +283,7 @@ class DataProcessor:
                         'name': carrier_name,
                         'passengers': 0, 'freight': 0, 'mail': 0,
                         'departures_scheduled': 0, 'departures_performed': 0,
-                        'seats': 0, 'air_time': 0, 'aircraft_types': set()
+                        'seats': 0, 'air_time': 0, 'aircraft_types': {}
                     }
                 
                 c = route['carriers'][carrier]
@@ -292,7 +292,9 @@ class DataProcessor:
                 c['seats'] += seats
                 c['air_time'] += air_time
                 if aircraft_type and departures_performed > 0:
-                    c['aircraft_types'].add(aircraft_type)
+                    if aircraft_type not in c['aircraft_types']:
+                        c['aircraft_types'][aircraft_type] = 0
+                    c['aircraft_types'][aircraft_type] += departures_performed
                 
                 row_count += 1
                 if row_count % 100000 == 0:
@@ -335,7 +337,7 @@ class DataProcessor:
                 
                 # Insert carriers
                 for carrier_code, carrier_data in data['carriers'].items():
-                    aircraft_json = json.dumps(sorted(list(carrier_data['aircraft_types'])))
+                    aircraft_json = json.dumps(carrier_data['aircraft_types'])
                     query = """
                         INSERT INTO route_carriers 
                         (route_id, carrier_code, carrier_name, passengers, freight, mail,

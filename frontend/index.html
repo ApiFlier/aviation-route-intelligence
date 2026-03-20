@@ -75,6 +75,9 @@
         .load-more:hover { background: #1a4a7a; }
         .load-more:disabled { opacity: 0.5; cursor: default; }
         
+        .reverse-btn { background: #0f3460; border: 1px solid #00d9ff; color: #00d9ff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; margin-top: 10px; display: inline-block; }
+        .reverse-btn:hover { background: #00d9ff; color: #1a1a2e; }
+        
         .loading { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26, 26, 46, 0.9); display: flex; align-items: center; justify-content: center; z-index: 9999; }
         .loading.hidden { display: none; }
         .loading-text { font-size: 1.2rem; color: #00d9ff; }
@@ -426,6 +429,7 @@
                 html += `<div class="breadcrumb"><span onclick="selectAirport('${fromIata}')">${fromIata}</span> → <span class="current">${toIata}</span></div>`;
                 html += `<div class="airport-code">${route.origin} → ${route.dest}</div>`;
                 html += `<div class="airport-name">${route.origin_city || ''} to ${route.dest_city || ''}</div>`;
+                html += `<button class="reverse-btn" onclick="selectRoute('${route.dest}', '${route.origin}')">⇄ View ${route.dest} → ${route.origin}</button>`;
                 
                 html += '<div class="stat-grid" style="margin-top:15px;">';
                 html += `<div class="stat-box"><div class="value">${formatNum(route.passengers)}</div><div class="label">Passengers</div></div>`;
@@ -521,14 +525,15 @@
                     html += '</div>';
                 }
                 
-                const acTypes = carrier.aircraft_types || [];
-                if (acTypes.length > 0) {
+                const acTypes = carrier.aircraft_types || {};
+                const acEntries = Object.entries(acTypes).sort((a, b) => b[1] - a[1]); // Sort by count desc
+                if (acEntries.length > 0) {
                     html += '<div class="aircraft-section">';
                     html += '<h4>Aircraft Types</h4>';
                     html += '<div class="aircraft-list">';
-                    for (const ac of acTypes) {
+                    for (const [ac, count] of acEntries) {
                         const acName = aircraftCache[ac] || ac;
-                        html += `<div class="aircraft-tag" title="Code: ${ac}">${acName}</div>`;
+                        html += `<div class="aircraft-tag" title="Code: ${ac}">${acName} <span style="opacity:0.7">(${formatNum(count)})</span></div>`;
                     }
                     html += '</div></div>';
                 }
