@@ -12,19 +12,7 @@ db = get_db()
 
 @routes_bp.route('/routes')
 def list_routes():
-    """
-    List routes with optional filters.
-    
-    Query params:
-        origin: Filter by origin airport
-        dest: Filter by destination airport
-        min_passengers: Minimum passenger count
-        min_distance: Minimum distance
-        max_distance: Maximum distance
-        sort: 'passengers', 'freight', 'distance' (default: passengers)
-        limit: Max results (default 50, max 500)
-        offset: Pagination offset
-    """
+    """List routes with optional filters."""
     origin = request.args.get('origin', '').strip().upper()
     dest = request.args.get('dest', '').strip().upper()
     min_pax = request.args.get('min_passengers', type=int)
@@ -76,7 +64,6 @@ def list_routes():
     
     routes = db.execute(query, params)
     
-    # Get total
     count_query = f"SELECT COUNT(*) as total FROM routes r {where}"
     total = db.execute_one(count_query, params[:-2] if conditions else None)['total']
     
@@ -94,7 +81,6 @@ def get_route(origin, dest):
     origin = origin.upper()
     dest = dest.upper()
     
-    # Try requested direction first
     route = db.execute_one("""
         SELECT 
             r.*,
@@ -108,7 +94,6 @@ def get_route(origin, dest):
         WHERE r.origin = %s AND r.dest = %s
     """, (origin, dest))
     
-    # If not found, try reverse direction
     if not route:
         route = db.execute_one("""
             SELECT 
@@ -131,17 +116,15 @@ def get_route(origin, dest):
 
 @routes_bp.route('/routes/<origin>/<dest>/carriers')
 def get_route_carriers(origin, dest):
-    """Get carriers operating a route."""
+    """Get carriers operating a route with on-time stats."""
     origin = origin.upper()
     dest = dest.upper()
     
-    # Try requested direction first
     route = db.execute_one(
         "SELECT id FROM routes WHERE origin = %s AND dest = %s",
         (origin, dest)
     )
     
-    # If not found, try reverse direction
     if not route:
         route = db.execute_one(
             "SELECT id FROM routes WHERE origin = %s AND dest = %s",
@@ -153,32 +136,69 @@ def get_route_carriers(origin, dest):
     
     carriers = db.execute("""
         SELECT 
-            carrier_code, carrier_name, passengers, freight, mail,
-            departures_scheduled, departures_performed, seats, air_time, aircraft_types
+            carrier_code, carrier_name, 
+            marketing_carrier, marketing_name, branded_code_share,
+            passengers, freight, mail,
+            departures_scheduled, departures_performed, seats, 
+            payload, air_time, ramp_time, aircraft_types,
+            ontime_flights, ontime_arrived, ontime_on_time, ontime_delayed,
+            ontime_cancelled, ontime_diverted,
+            delay_total_dep_mins, delay_total_arr_mins,
+            delay_carrier_mins, delay_weather_mins, delay_nas_mins,
+            delay_security_mins, delay_late_aircraft_mins,
+            taxi_out_total, taxi_in_total,
+            cancel_carrier, cancel_weather, cancel_nas, cancel_security,
+            div_reached_dest
         FROM route_carriers
         WHERE route_id = %s
         ORDER BY passengers DESC
     """, (route['id'],))
     
-    # Parse JSON aircraft_types
+    # Parse JSON and compute derived stats
     for carrier in carriers:
         if carrier['aircraft_types']:
             carrier['aircraft_types'] = json.loads(carrier['aircraft_types'])
         else:
-            carrier['aircraft_types'] = []
+            carrier['aircraft_types'] = {}
+        
+        # Compute on-time percentage
+        if carrier['ontime_arrived'] and carrier['ontime_arrived'] > 0:
+            carrier['ontime_pct'] = round(carrier['ontime_on_time'] / carrier['ontime_arrived'] * 100, 1)
+        else:
+            carrier['ontime_pct'] = None
+        
+        # Compute cancellation rate
+        if carrier['ontime_flights'] and carrier['ontime_flights'] > 0:
+            carrier['cancel_pct'] = round(carrier['ontime_cancelled'] / carrier['ontime_flights'] * 100, 1)
+        else:
+            carrier['cancel_pct'] = None
+        
+        # Compute average arrival delay (for arrived flights)
+        if carrier['ontime_arrived'] and carrier['ontime_arrived'] > 0:
+            carrier['avg_arr_delay'] = round(carrier['delay_total_arr_mins'] / carrier['ontime_arrived'], 1)
+        else:
+            carrier['avg_arr_delay'] = None
+        
+        # Compute average taxi times
+        if carrier['ontime_arrived'] and carrier['ontime_arrived'] > 0:
+            carrier['avg_taxi_out'] = round(carrier['taxi_out_total'] / carrier['ontime_arrived'], 1)
+            carrier['avg_taxi_in'] = round(carrier['taxi_in_total'] / carrier['ontime_arrived'], 1)
+        else:
+            carrier['avg_taxi_out'] = None
+            carrier['avg_taxi_in'] = None
+        
+        # Load factor
+        if carrier['seats'] and carrier['seats'] > 0:
+            carrier['load_factor'] = round(carrier['passengers'] / carrier['seats'] * 100, 1)
+        else:
+            carrier['load_factor'] = None
     
     return jsonify({'carriers': carriers})
 
 
 @routes_bp.route('/routes/top')
 def get_top_routes():
-    """
-    Get top routes by various metrics.
-    
-    Query params:
-        metric: 'passengers', 'freight', 'distance' (default: passengers)
-        limit: Max results (default 20, max 100)
-    """
+    """Get top routes by various metrics."""
     metric = request.args.get('metric', 'passengers')
     limit = min(int(request.args.get('limit', 20)), 100)
     

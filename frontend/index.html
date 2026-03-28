@@ -37,7 +37,7 @@
         .stats .stat-item i { color: #00d9ff; }
         .stats span { color: #00d9ff; font-weight: 600; }
         
-        .info-panel { position: absolute; top: 80px; right: 20px; background: rgba(22, 33, 62, 0.95); border-radius: 8px; padding: 15px; min-width: 340px; max-width: 400px; max-height: calc(100vh - 160px); overflow-y: auto; z-index: 1000; display: none; border: 1px solid #0f3460; }
+        .info-panel { position: absolute; top: 80px; right: 20px; background: rgba(22, 33, 62, 0.95); border-radius: 8px; padding: 15px; min-width: 340px; max-width: 420px; max-height: calc(100vh - 160px); overflow-y: auto; z-index: 1000; display: none; border: 1px solid #0f3460; }
         .info-panel.visible { display: block; }
         .info-panel .airport-header { display: flex; align-items: center; gap: 10px; }
         .info-panel .airport-code { font-size: 1.8rem; font-weight: 700; color: #00d9ff; }
@@ -56,14 +56,39 @@
         .breadcrumb span.current:hover { text-decoration: none; }
         .breadcrumb i { font-size: 0.6rem; color: #555; }
         
-        .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 15px; }
+        .section-header { color: #888; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; margin: 15px 0 8px 0; display: flex; align-items: center; gap: 6px; }
+        .section-header i { color: #00d9ff; }
+        
+        .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
         .stat-box { background: #1a1a2e; border-radius: 6px; padding: 10px; text-align: center; }
         .stat-box .icon { font-size: 0.9rem; color: #00d9ff; margin-bottom: 4px; }
-        .stat-box .value { font-size: 1.2rem; font-weight: 700; color: #00d9ff; }
-        .stat-box .label { font-size: 0.65rem; color: #888; text-transform: uppercase; margin-top: 2px; }
+        .stat-box .value { font-size: 1.1rem; font-weight: 700; color: #00d9ff; }
+        .stat-box .label { font-size: 0.6rem; color: #888; text-transform: uppercase; margin-top: 2px; }
         .stat-box.green .icon, .stat-box.green .value { color: #00ff88; }
         .stat-box.orange .icon, .stat-box.orange .value { color: #ff9800; }
         .stat-box.purple .icon, .stat-box.purple .value { color: #9c27b0; }
+        .stat-box.red .icon, .stat-box.red .value { color: #f44336; }
+        .stat-box.yellow .icon, .stat-box.yellow .value { color: #ffeb3b; }
+        .stat-box.cyan .icon, .stat-box.cyan .value { color: #00bcd4; }
+        
+        .delay-bar { margin: 8px 0; }
+        .delay-bar-label { font-size: 0.7rem; color: #888; margin-bottom: 4px; display: flex; justify-content: space-between; }
+        .delay-bar-track { height: 8px; background: #1a1a2e; border-radius: 4px; overflow: hidden; display: flex; }
+        .delay-bar-segment { height: 100%; }
+        .delay-bar-segment.carrier { background: #f44336; }
+        .delay-bar-segment.weather { background: #2196f3; }
+        .delay-bar-segment.nas { background: #ff9800; }
+        .delay-bar-segment.security { background: #9c27b0; }
+        .delay-bar-segment.late { background: #ffeb3b; }
+        
+        .delay-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 0.65rem; }
+        .delay-legend-item { display: flex; align-items: center; gap: 4px; color: #888; }
+        .delay-legend-item .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .delay-legend-item .dot.carrier { background: #f44336; }
+        .delay-legend-item .dot.weather { background: #2196f3; }
+        .delay-legend-item .dot.nas { background: #ff9800; }
+        .delay-legend-item .dot.security { background: #9c27b0; }
+        .delay-legend-item .dot.late { background: #ffeb3b; }
         
         .list-header { color: #888; font-size: 0.75rem; text-transform: uppercase; margin: 15px 0 8px 0; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
         .list-header i { margin-right: 6px; }
@@ -73,10 +98,15 @@
         .route-item:hover, .carrier-item:hover { background: #0f3460; }
         .route-item .dest-code, .carrier-item .carrier-code { color: #00d9ff; font-weight: 700; font-size: 1rem; }
         .route-item .dest-name, .carrier-item .carrier-name { color: #ccc; font-size: 0.8rem; margin-top: 2px; }
-        .route-item .route-stats, .carrier-item .carrier-stats { display: flex; gap: 15px; margin-top: 6px; font-size: 0.75rem; }
+        .route-item .route-stats, .carrier-item .carrier-stats { display: flex; gap: 12px; margin-top: 6px; font-size: 0.75rem; flex-wrap: wrap; }
         .route-item .route-stats span, .carrier-item .carrier-stats span { color: #888; display: flex; align-items: center; gap: 4px; }
         .route-item .route-stats strong, .carrier-item .carrier-stats strong { color: #fff; }
         .route-item .route-stats i, .carrier-item .carrier-stats i { font-size: 0.7rem; }
+        
+        .ontime-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 3px; margin-left: 8px; }
+        .ontime-badge.good { background: #00ff88; color: #000; }
+        .ontime-badge.ok { background: #ffeb3b; color: #000; }
+        .ontime-badge.bad { background: #f44336; color: #fff; }
         
         .route-type { font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; margin-left: 8px; }
         .route-type.freight { background: #ff9800; color: #000; }
@@ -112,6 +142,8 @@
         .layer-toggle button i { margin-right: 4px; }
         
         .country-tag { color: #00bcd4; font-size: 0.8rem; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+        
+        .no-data { color: #666; font-size: 0.8rem; font-style: italic; text-align: center; padding: 10px; }
     </style>
 </head>
 <body>
@@ -293,6 +325,13 @@
             return 'unknown';
         }
         
+        function getOntimeBadge(pct) {
+            if (pct === null || pct === undefined) return '';
+            if (pct >= 80) return `<span class="ontime-badge good">${pct}% on-time</span>`;
+            if (pct >= 70) return `<span class="ontime-badge ok">${pct}% on-time</span>`;
+            return `<span class="ontime-badge bad">${pct}% on-time</span>`;
+        }
+        
         function drawArc(start, end, passengers, routeType, highlight) {
             const latlngs = [];
             const offsetX = end[1] - start[1], offsetY = end[0] - start[0];
@@ -459,12 +498,15 @@
                 html += '<div class="list-container">';
                 for (const carrier of carriers) {
                     const pct = route.passengers > 0 ? Math.round((carrier.passengers / route.passengers) * 100) : 0;
+                    const ontimeBadge = getOntimeBadge(carrier.ontime_pct);
+                    
                     html += `<div class="carrier-item" onclick="selectCarrier('${origin}', '${dest}', '${carrier.carrier_code}')">`;
-                    html += `<div><span class="carrier-code">${carrier.carrier_code}</span></div>`;
+                    html += `<div><span class="carrier-code">${carrier.carrier_code}</span>${ontimeBadge}</div>`;
                     html += `<div class="carrier-name">${carrier.carrier_name || 'Unknown'}</div>`;
                     html += `<div class="carrier-stats">`;
                     html += `<span><i class="fas fa-users"></i> <strong>${formatNum(carrier.passengers)}</strong> (${pct}%)</span>`;
                     if (carrier.departures_performed) html += `<span><i class="fas fa-plane"></i> <strong>${formatNum(carrier.departures_performed)}</strong></span>`;
+                    if (carrier.cancel_pct !== null) html += `<span><i class="fas fa-ban"></i> <strong>${carrier.cancel_pct}%</strong> cancel</span>`;
                     html += `</div></div>`;
                 }
                 html += '</div>';
@@ -494,9 +536,13 @@
                     { type: 'carrier', from: fromIata, to: toIata, code: carrierCode }
                 ];
                 
+                // T-100 derived stats
                 const reliability = carrier.departures_scheduled > 0 ? Math.round((carrier.departures_performed / carrier.departures_scheduled) * 100) : 0;
                 const loadFactor = carrier.seats > 0 ? Math.round((carrier.passengers / carrier.seats) * 100) : 0;
                 const avgAirTime = carrier.departures_performed > 0 ? Math.round(carrier.air_time / carrier.departures_performed) : 0;
+                
+                // On-time data
+                const hasOntime = carrier.ontime_flights && carrier.ontime_flights > 0;
                 
                 let html = '<button class="close-btn" onclick="closeInfoPanel()"><i class="fas fa-times"></i></button>';
                 html += '<button class="back-btn visible" onclick="goBack()"><i class="fas fa-arrow-left"></i> Back</button>';
@@ -510,26 +556,87 @@
                 html += `<div class="carrier-detail"><h3><i class="fas fa-building"></i>${carrierCode}</h3>`;
                 html += `<div class="carrier-full-name">${carrier.carrier_name || 'Unknown Carrier'}</div></div>`;
                 
+                // Traffic stats
+                html += '<div class="section-header"><i class="fas fa-chart-bar"></i> Traffic</div>';
                 html += '<div class="stat-grid">';
                 html += `<div class="stat-box"><div class="icon"><i class="fas fa-users"></i></div><div class="value">${formatNum(carrier.passengers)}</div><div class="label">Passengers</div></div>`;
                 html += `<div class="stat-box orange"><div class="icon"><i class="fas fa-box"></i></div><div class="value">${formatNum(carrier.freight)}</div><div class="label">Freight lbs</div></div>`;
                 html += `<div class="stat-box purple"><div class="icon"><i class="fas fa-envelope"></i></div><div class="value">${formatNum(carrier.mail)}</div><div class="label">Mail lbs</div></div>`;
                 html += '</div>';
                 
+                // Operations stats
                 if (carrier.departures_scheduled > 0 || carrier.departures_performed > 0) {
+                    html += '<div class="section-header"><i class="fas fa-plane-departure"></i> Operations</div>';
                     html += '<div class="stat-grid">';
                     html += `<div class="stat-box"><div class="icon"><i class="fas fa-calendar"></i></div><div class="value">${formatNum(carrier.departures_scheduled)}</div><div class="label">Scheduled</div></div>`;
                     html += `<div class="stat-box green"><div class="icon"><i class="fas fa-check"></i></div><div class="value">${formatNum(carrier.departures_performed)}</div><div class="label">Performed</div></div>`;
-                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-chart-line"></i></div><div class="value">${reliability}%</div><div class="label">Reliability</div></div>`;
+                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-chart-line"></i></div><div class="value">${reliability}%</div><div class="label">Completion</div></div>`;
                     html += '</div>';
                     
                     html += '<div class="stat-grid">';
                     html += `<div class="stat-box"><div class="icon"><i class="fas fa-chair"></i></div><div class="value">${formatNum(carrier.seats)}</div><div class="label">Total Seats</div></div>`;
                     html += `<div class="stat-box green"><div class="icon"><i class="fas fa-percentage"></i></div><div class="value">${loadFactor}%</div><div class="label">Load Factor</div></div>`;
-                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-clock"></i></div><div class="value">${avgAirTime} min</div><div class="label">Avg Flight Time</div></div>`;
+                    html += `<div class="stat-box cyan"><div class="icon"><i class="fas fa-clock"></i></div><div class="value">${avgAirTime} min</div><div class="label">Avg Flight</div></div>`;
                     html += '</div>';
                 }
                 
+                // On-Time Performance
+                if (hasOntime) {
+                    html += '<div class="section-header"><i class="fas fa-stopwatch"></i> On-Time Performance</div>';
+                    html += '<div class="stat-grid">';
+                    
+                    const ontimeClass = carrier.ontime_pct >= 80 ? 'green' : (carrier.ontime_pct >= 70 ? 'yellow' : 'red');
+                    html += `<div class="stat-box ${ontimeClass}"><div class="icon"><i class="fas fa-clock"></i></div><div class="value">${carrier.ontime_pct || 0}%</div><div class="label">On-Time</div></div>`;
+                    
+                    const cancelClass = carrier.cancel_pct <= 2 ? 'green' : (carrier.cancel_pct <= 5 ? 'yellow' : 'red');
+                    html += `<div class="stat-box ${cancelClass}"><div class="icon"><i class="fas fa-ban"></i></div><div class="value">${carrier.cancel_pct || 0}%</div><div class="label">Cancelled</div></div>`;
+                    
+                    const delayClass = carrier.avg_arr_delay <= 10 ? 'green' : (carrier.avg_arr_delay <= 20 ? 'yellow' : 'red');
+                    html += `<div class="stat-box ${delayClass}"><div class="icon"><i class="fas fa-hourglass-half"></i></div><div class="value">${carrier.avg_arr_delay || 0} min</div><div class="label">Avg Delay</div></div>`;
+                    html += '</div>';
+                    
+                    // Flight counts
+                    html += '<div class="stat-grid">';
+                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-plane-arrival"></i></div><div class="value">${formatNum(carrier.ontime_on_time)}</div><div class="label">On-Time</div></div>`;
+                    html += `<div class="stat-box orange"><div class="icon"><i class="fas fa-clock"></i></div><div class="value">${formatNum(carrier.ontime_delayed)}</div><div class="label">Delayed</div></div>`;
+                    html += `<div class="stat-box red"><div class="icon"><i class="fas fa-times-circle"></i></div><div class="value">${formatNum(carrier.ontime_cancelled)}</div><div class="label">Cancelled</div></div>`;
+                    html += '</div>';
+                    
+                    // Delay breakdown bar
+                    const totalDelayMins = carrier.delay_carrier_mins + carrier.delay_weather_mins + 
+                                          carrier.delay_nas_mins + carrier.delay_security_mins + 
+                                          carrier.delay_late_aircraft_mins;
+                    
+                    if (totalDelayMins > 0) {
+                        const carrierPct = (carrier.delay_carrier_mins / totalDelayMins * 100).toFixed(0);
+                        const weatherPct = (carrier.delay_weather_mins / totalDelayMins * 100).toFixed(0);
+                        const nasPct = (carrier.delay_nas_mins / totalDelayMins * 100).toFixed(0);
+                        const securityPct = (carrier.delay_security_mins / totalDelayMins * 100).toFixed(0);
+                        const latePct = (carrier.delay_late_aircraft_mins / totalDelayMins * 100).toFixed(0);
+                        
+                        html += '<div class="delay-bar">';
+                        html += '<div class="delay-bar-label"><span>Delay Causes</span><span>' + formatNum(totalDelayMins) + ' total mins</span></div>';
+                        html += '<div class="delay-bar-track">';
+                        if (carrierPct > 0) html += `<div class="delay-bar-segment carrier" style="width:${carrierPct}%"></div>`;
+                        if (weatherPct > 0) html += `<div class="delay-bar-segment weather" style="width:${weatherPct}%"></div>`;
+                        if (nasPct > 0) html += `<div class="delay-bar-segment nas" style="width:${nasPct}%"></div>`;
+                        if (securityPct > 0) html += `<div class="delay-bar-segment security" style="width:${securityPct}%"></div>`;
+                        if (latePct > 0) html += `<div class="delay-bar-segment late" style="width:${latePct}%"></div>`;
+                        html += '</div>';
+                        html += '<div class="delay-legend">';
+                        html += `<div class="delay-legend-item"><span class="dot carrier"></span>Carrier ${carrierPct}%</div>`;
+                        html += `<div class="delay-legend-item"><span class="dot weather"></span>Weather ${weatherPct}%</div>`;
+                        html += `<div class="delay-legend-item"><span class="dot nas"></span>NAS ${nasPct}%</div>`;
+                        if (securityPct > 0) html += `<div class="delay-legend-item"><span class="dot security"></span>Security ${securityPct}%</div>`;
+                        html += `<div class="delay-legend-item"><span class="dot late"></span>Late Aircraft ${latePct}%</div>`;
+                        html += '</div></div>';
+                    }
+                } else {
+                    html += '<div class="section-header"><i class="fas fa-stopwatch"></i> On-Time Performance</div>';
+                    html += '<div class="no-data">No on-time data available for this carrier on this route</div>';
+                }
+                
+                // Aircraft types
                 let acTypes = carrier.aircraft_types || {};
                 let acEntries = [];
                 if (Array.isArray(acTypes)) { acEntries = acTypes.map(ac => [ac, null]); }
