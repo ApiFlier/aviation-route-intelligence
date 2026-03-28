@@ -98,6 +98,8 @@
         .route-item:hover, .carrier-item:hover { background: #0f3460; }
         .route-item .dest-code, .carrier-item .carrier-code { color: #00d9ff; font-weight: 700; font-size: 1rem; }
         .route-item .dest-name, .carrier-item .carrier-name { color: #ccc; font-size: 0.8rem; margin-top: 2px; }
+        .carrier-item .carrier-marketing { color: #888; font-size: 0.7rem; margin-top: 2px; }
+        .carrier-item .carrier-marketing i { color: #ff9800; margin-right: 4px; }
         .route-item .route-stats, .carrier-item .carrier-stats { display: flex; gap: 12px; margin-top: 6px; font-size: 0.75rem; flex-wrap: wrap; }
         .route-item .route-stats span, .carrier-item .carrier-stats span { color: #888; display: flex; align-items: center; gap: 4px; }
         .route-item .route-stats strong, .carrier-item .carrier-stats strong { color: #fff; }
@@ -503,6 +505,9 @@
                     html += `<div class="carrier-item" onclick="selectCarrier('${origin}', '${dest}', '${carrier.carrier_code}')">`;
                     html += `<div><span class="carrier-code">${carrier.carrier_code}</span>${ontimeBadge}</div>`;
                     html += `<div class="carrier-name">${carrier.carrier_name || 'Unknown'}</div>`;
+                    if (carrier.marketing_carrier && carrier.marketing_carrier !== carrier.carrier_code) {
+                        html += `<div class="carrier-marketing"><i class="fas fa-tag"></i> Marketed as: ${carrier.marketing_name || carrier.marketing_carrier}</div>`;
+                    }
                     html += `<div class="carrier-stats">`;
                     html += `<span><i class="fas fa-users"></i> <strong>${formatNum(carrier.passengers)}</strong> (${pct}%)</span>`;
                     if (carrier.departures_performed) html += `<span><i class="fas fa-plane"></i> <strong>${formatNum(carrier.departures_performed)}</strong></span>`;
@@ -555,6 +560,9 @@
                 
                 html += `<div class="carrier-detail"><h3><i class="fas fa-building"></i>${carrierCode}</h3>`;
                 html += `<div class="carrier-full-name">${carrier.carrier_name || 'Unknown Carrier'}</div></div>`;
+                if (carrier.marketing_carrier && carrier.marketing_carrier !== carrier.carrier_code) {
+                    html += `<div class="carrier-marketing" style="color:#888;font-size:0.85rem;margin-bottom:10px;"><i class="fas fa-tag" style="color:#ff9800;margin-right:6px;"></i>Marketed as: ${carrier.marketing_name || carrier.marketing_carrier}</div>`;
+                }
                 
                 // Traffic stats
                 html += '<div class="section-header"><i class="fas fa-chart-bar"></i> Traffic</div>';
