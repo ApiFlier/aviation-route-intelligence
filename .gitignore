@@ -1,1 +1,10 @@
-api/Data/*.csv
+# Large data files - too big for GitHub
+
+# On-Time (228-285MB each)
+api/Data/On-Time Performance Data*.csv
+
+# DB1B (476MB - 2.1GB each)
+api/Data/Origin and Destination Survey*.csv
+
+# All T-100 files (16MB - 178MB each)
+api/Data/Air Carrier Statistics*.csv
