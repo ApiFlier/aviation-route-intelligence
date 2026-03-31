@@ -8,3 +8,4 @@ api/Data/Origin and Destination Survey*.csv
 
 # All T-100 files (16MB - 178MB each)
 api/Data/Air Carrier Statistics*.csv
+__pycache__/

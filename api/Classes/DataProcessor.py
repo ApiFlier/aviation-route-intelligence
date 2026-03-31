@@ -27,11 +27,16 @@ class DataProcessor:
         
         # File paths
         self.files = {
-            'airports': 'Master Coord.csv',
-            'aircraft': 'Aircraft Types.csv',
-            'carriers': 'Carrier Decode.csv',
-            'market': 'T-100 Market.csv',
-            'segment': 'T-100 Segment.csv',
+            'airports': 'Support Tables - Master Coord.csv',
+            'aircraft': 'Support Tables - Aircraft Types.csv',
+            'carriers': 'Support Tables - Carrier Decode.csv',
+        }
+        
+        self.patterns = {
+            'market': 'Air Carrier Statistics - All Carriers - T-100 Market - *.csv',
+            'segment': 'Air Carrier Statistics - All Carriers - T-100 Segment - *.csv',
+            'ontime': 'On-Time Performance Data - Marketing - *.csv',
+            'db1b_market': 'Origin and Destination Survey - DB1BMarket - *.csv',
         }
         
         # In-memory data during processing
@@ -49,6 +54,11 @@ class DataProcessor:
     def _get_path(self, key: str) -> str:
         """Get full path for a data file."""
         return os.path.join(self.data_dir, self.files[key])
+
+    def _get_files(self, key: str) -> list:
+        """Get list of files matching a pattern."""
+        pattern = os.path.join(self.data_dir, self.patterns[key])
+        return sorted(glob.glob(pattern))
     
     def _safe_int(self, value: str, default: int = 0) -> int:
         """Safely convert to int."""
@@ -207,102 +217,108 @@ class DataProcessor:
     def process_market_data(self) -> None:
         """Process T-100 Market data for passengers, freight, mail."""
         print("Processing T-100 Market data...")
-        path = self._get_path('market')
+        files = self._get_files('market')
         
-        if not os.path.exists(path):
-            print(f"  ERROR: {path} not found")
+        if not files:
+            print(f"  ERROR: No T-100 Market files found")
             return
         
+        print(f"  Found {len(files)} market files")
         row_count = 0
-        with open(path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                origin = row.get('ORIGIN', '').strip()
-                dest = row.get('DEST', '').strip()
-                carrier = row.get('UNIQUE_CARRIER', '').strip()
-                
-                if not origin or not dest or not carrier:
-                    continue
-                if origin not in self.airports or dest not in self.airports:
-                    continue
-                
-                passengers = self._safe_int(row.get('PASSENGERS'))
-                freight = self._safe_int(row.get('FREIGHT'))
-                mail = self._safe_int(row.get('MAIL'))
-                distance = self._safe_int(row.get('DISTANCE'))
-                carrier_name = row.get('UNIQUE_CARRIER_NAME', '').strip()
-                
-                route = self.routes[origin][dest]
-                route['passengers'] += passengers
-                route['freight'] += freight
-                route['mail'] += mail
-                if distance > 0:
-                    route['distance'] = distance
-                
-                if carrier not in route['carriers']:
-                    route['carriers'][carrier] = self._new_carrier_record(carrier_name)
-                
-                c = route['carriers'][carrier]
-                c['passengers'] += passengers
-                c['freight'] += freight
-                c['mail'] += mail
-                
-                row_count += 1
-                if row_count % 100000 == 0:
-                    print(f"  Processed {row_count:,} market rows...")
+        for filepath in files:
+            print(f"  Processing {os.path.basename(filepath)}...")
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    origin = row.get('ORIGIN', '').strip()
+                    dest = row.get('DEST', '').strip()
+                    carrier = row.get('UNIQUE_CARRIER', '').strip()
+
+                    if not origin or not dest or not carrier:
+                        continue
+                    if origin not in self.airports or dest not in self.airports:
+                        continue
+
+                    passengers = self._safe_int(row.get('PASSENGERS'))
+                    freight = self._safe_int(row.get('FREIGHT'))
+                    mail = self._safe_int(row.get('MAIL'))
+                    distance = self._safe_int(row.get('DISTANCE'))
+                    carrier_name = row.get('UNIQUE_CARRIER_NAME', '').strip()
+
+                    route = self.routes[origin][dest]
+                    route['passengers'] += passengers
+                    route['freight'] += freight
+                    route['mail'] += mail
+                    if distance > 0:
+                        route['distance'] = distance
+
+                    if carrier not in route['carriers']:
+                        route['carriers'][carrier] = self._new_carrier_record(carrier_name)
+
+                    c = route['carriers'][carrier]
+                    c['passengers'] += passengers
+                    c['freight'] += freight
+                    c['mail'] += mail
+
+                    row_count += 1
+                    if row_count % 100000 == 0:
+                        print(f"  Processed {row_count:,} market rows...")
         
         print(f"  Processed {row_count:,} total market rows")
     
     def process_segment_data(self) -> None:
         """Process T-100 Segment data for flights, seats, air time, aircraft."""
         print("Processing T-100 Segment data...")
-        path = self._get_path('segment')
+        files = self._get_files('segment')
         
-        if not os.path.exists(path):
-            print(f"  WARNING: {path} not found, skipping segment data")
+        if not files:
+            print(f"  WARNING: No T-100 Segment files found, skipping")
             return
         
+        print(f"  Found {len(files)} segment files")
         row_count = 0
-        with open(path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                origin = row.get('ORIGIN', '').strip()
-                dest = row.get('DEST', '').strip()
-                carrier = row.get('UNIQUE_CARRIER', '').strip()
-                
-                if not origin or not dest or not carrier:
-                    continue
-                if origin not in self.airports or dest not in self.airports:
-                    continue
-                
-                departures_scheduled = self._safe_int(row.get('DEPARTURES_SCHEDULED'))
-                departures_performed = self._safe_int(row.get('DEPARTURES_PERFORMED'))
-                seats = self._safe_int(row.get('SEATS'))
-                payload = self._safe_int(row.get('PAYLOAD'))
-                air_time = self._safe_int(row.get('AIR_TIME'))
-                ramp_time = self._safe_int(row.get('RAMP_TO_RAMP', row.get('RAMPTIME', 0)))
-                aircraft_type = row.get('AIRCRAFT_TYPE', '').strip()
-                carrier_name = row.get('UNIQUE_CARRIER_NAME', '').strip()
-                
-                route = self.routes[origin][dest]
-                if carrier not in route['carriers']:
-                    route['carriers'][carrier] = self._new_carrier_record(carrier_name)
-                
-                c = route['carriers'][carrier]
-                c['departures_scheduled'] += departures_scheduled
-                c['departures_performed'] += departures_performed
-                c['seats'] += seats
-                c['payload'] += payload
-                c['air_time'] += air_time
-                c['ramp_time'] += ramp_time
-                if aircraft_type and departures_performed > 0:
-                    if aircraft_type not in c['aircraft_types']:
-                        c['aircraft_types'][aircraft_type] = 0
-                    c['aircraft_types'][aircraft_type] += departures_performed
-                
-                row_count += 1
-                if row_count % 100000 == 0:
-                    print(f"  Processed {row_count:,} segment rows...")
+        for filepath in files:
+            print(f"  Processing {os.path.basename(filepath)}...")
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    origin = row.get('ORIGIN', '').strip()
+                    dest = row.get('DEST', '').strip()
+                    carrier = row.get('UNIQUE_CARRIER', '').strip()
+
+                    if not origin or not dest or not carrier:
+                        continue
+                    if origin not in self.airports or dest not in self.airports:
+                        continue
+
+                    departures_scheduled = self._safe_int(row.get('DEPARTURES_SCHEDULED'))
+                    departures_performed = self._safe_int(row.get('DEPARTURES_PERFORMED'))
+                    seats = self._safe_int(row.get('SEATS'))
+                    payload = self._safe_int(row.get('PAYLOAD'))
+                    air_time = self._safe_int(row.get('AIR_TIME'))
+                    ramp_time = self._safe_int(row.get('RAMP_TO_RAMP', row.get('RAMPTIME', 0)))
+                    aircraft_type = row.get('AIRCRAFT_TYPE', '').strip()
+                    carrier_name = row.get('UNIQUE_CARRIER_NAME', '').strip()
+
+                    route = self.routes[origin][dest]
+                    if carrier not in route['carriers']:
+                        route['carriers'][carrier] = self._new_carrier_record(carrier_name)
+
+                    c = route['carriers'][carrier]
+                    c['departures_scheduled'] += departures_scheduled
+                    c['departures_performed'] += departures_performed
+                    c['seats'] += seats
+                    c['payload'] += payload
+                    c['air_time'] += air_time
+                    c['ramp_time'] += ramp_time
+                    if aircraft_type and departures_performed > 0:
+                        if aircraft_type not in c['aircraft_types']:
+                            c['aircraft_types'][aircraft_type] = 0
+                        c['aircraft_types'][aircraft_type] += departures_performed
+
+                    row_count += 1
+                    if row_count % 100000 == 0:
+                        print(f"  Processed {row_count:,} segment rows...")
         
         print(f"  Processed {row_count:,} total segment rows")
     
@@ -311,7 +327,7 @@ class DataProcessor:
         print("Processing Marketing Carrier On-Time Performance data...")
         
         # Find Marketing on-time CSV files (prefer over Reporting)
-        pattern = os.path.join(self.data_dir, 'On-Time - Marketing*.csv')
+        pattern = os.path.join(self.data_dir, self.patterns['ontime'])
         files = glob.glob(pattern)
         
         if not files:
@@ -491,6 +507,92 @@ class DataProcessor:
         
         print(f"  Processed {total_rows:,} total on-time rows")
     
+
+    def process_db1b_data(self) -> None:
+        """Process DB1B Market data for fare information."""
+        print("Processing DB1B Market data...")
+        files = self._get_files('db1b_market')
+        
+        if not files:
+            print("  No DB1B Market files found, skipping fare data")
+            return
+        
+        print(f"  Found {len(files)} DB1B Market files")
+        
+        # Aggregate fares in memory: {(origin, dest, carrier, year, quarter): {passengers, total_fare, distance}}
+        fare_data = {}
+        total_rows = 0
+        
+        for filepath in files:
+            filename = os.path.basename(filepath)
+            print(f"  Processing {filename}...")
+            
+            file_rows = 0
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    origin = row.get('ORIGIN', '').strip()
+                    dest = row.get('DEST', '').strip()
+                    carrier = row.get('REPORTING_CARRIER', '').strip()
+                    
+                    if not origin or not dest or not carrier:
+                        continue
+                    
+                    year = self._safe_int(row.get('YEAR'))
+                    quarter = self._safe_int(row.get('QUARTER'))
+                    passengers = self._safe_float(row.get('PASSENGERS', 0))
+                    fare = self._safe_float(row.get('MARKET_FARE', 0))
+                    distance = self._safe_float(row.get('MARKET_DISTANCE', 0))
+                    
+                    if passengers <= 0 or fare <= 0:
+                        continue
+                    
+                    key = (origin, dest, carrier, year, quarter)
+                    if key not in fare_data:
+                        fare_data[key] = {'passengers': 0, 'total_fare': 0, 'distance': distance}
+                    
+                    fare_data[key]['passengers'] += passengers
+                    fare_data[key]['total_fare'] += fare * passengers
+                    
+                    file_rows += 1
+                    if file_rows % 1000000 == 0:
+                        print(f"    {file_rows:,} rows...")
+            
+            print(f"    {file_rows:,} rows processed")
+            total_rows += file_rows
+        
+        print(f"  Processed {total_rows:,} total DB1B rows")
+        print(f"  Saving {len(fare_data):,} fare records...")
+        
+        # Get route IDs and insert
+        saved = 0
+        for (origin, dest, carrier, year, quarter), data in fare_data.items():
+            route = self.db.execute_one(
+                "SELECT id FROM routes WHERE origin=%s AND dest=%s", (origin, dest)
+            )
+            if not route:
+                continue
+            
+            # DB1B is 10% sample, multiply passengers by 10
+            passengers = int(data['passengers'] * 10)
+            avg_fare = data['total_fare'] / data['passengers'] if data['passengers'] > 0 else 0
+            distance = data['distance']
+            avg_fare_per_mile = avg_fare / distance if distance > 0 else 0
+            
+            query = """
+                INSERT INTO route_fares (route_id, carrier_code, year, quarter, passengers, avg_fare, avg_fare_per_mile)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    passengers=VALUES(passengers), avg_fare=VALUES(avg_fare), avg_fare_per_mile=VALUES(avg_fare_per_mile)
+            """
+            self.db.execute_write(query, (route['id'], carrier, year, quarter, passengers, avg_fare, avg_fare_per_mile))
+            saved += 1
+            
+            if saved % 10000 == 0:
+                print(f"    Saved {saved:,} fare records...")
+        
+        print(f"  Saved {saved:,} total fare records")
+
     def _new_carrier_record(self, name: str) -> dict:
         """Create a new carrier record with all fields initialized."""
         return {
@@ -677,6 +779,7 @@ class DataProcessor:
         self.process_market_data()
         self.process_segment_data()
         self.process_ontime_data()
+        self.process_db1b_data()
         
         self.save_to_database()
         

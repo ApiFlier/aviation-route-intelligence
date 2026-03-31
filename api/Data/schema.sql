@@ -122,3 +122,17 @@ CREATE TABLE IF NOT EXISTS stats (
     stat_key VARCHAR(50) PRIMARY KEY,
     stat_value BIGINT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- DB1B fare data by route/carrier/quarter
+CREATE TABLE IF NOT EXISTS route_fares (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    route_id INT NOT NULL,
+    carrier_code VARCHAR(10),
+    year SMALLINT,
+    quarter TINYINT,
+    passengers INT DEFAULT 0,
+    avg_fare DECIMAL(10,2),
+    avg_fare_per_mile DECIMAL(6,4),
+    FOREIGN KEY (route_id) REFERENCES routes(id),
+    UNIQUE KEY (route_id, carrier_code, year, quarter)
+);
