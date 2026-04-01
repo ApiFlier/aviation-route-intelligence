@@ -763,25 +763,40 @@ class DataProcessor:
         
         print(f"  Saved {route_count:,} routes with {route_carrier_count:,} carrier records")
     
+    def build_fare_flags(self) -> None:
+        """Set has_fares=True on airports that have outbound route_fares data."""
+        print("Building airport fare flags...")
+        self.db.execute_write("UPDATE airports SET has_fares = FALSE")
+        updated = self.db.execute_write("""
+            UPDATE airports a SET has_fares = TRUE
+            WHERE EXISTS (
+                SELECT 1 FROM routes r
+                JOIN route_fares rf ON rf.route_id = r.id
+                WHERE r.origin = a.iata
+            )
+        """)
+        print(f"  Flagged {updated:,} airports with fare data")
+
     def process_all(self, truncate: bool = True) -> None:
         """Run full processing pipeline."""
         print("=" * 60)
         print("FlightConn Data Processor")
         print("=" * 60)
-        
+
         if truncate:
             self.db.truncate_tables()
-        
+
         self.load_airports()
         self.load_aircraft()
         self.load_carriers()
-        
+
         self.process_market_data()
         self.process_segment_data()
         self.process_ontime_data()
         self.process_db1b_data()
-        
+
         self.save_to_database()
+        self.build_fare_flags()
         
         stats = self.db.execute("SELECT stat_key, stat_value FROM stats")
         print("\n" + "=" * 60)

@@ -11,7 +11,9 @@ CREATE TABLE IF NOT EXISTS airports (
     wac INT,
     airport_id INT,                         -- DOT Airport ID
     route_count INT DEFAULT 0,
+    has_fares BOOLEAN DEFAULT FALSE,
     INDEX idx_route_count (route_count),
+    INDEX idx_has_fares (has_fares),
     INDEX idx_country (country),
     INDEX idx_airport_id (airport_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
