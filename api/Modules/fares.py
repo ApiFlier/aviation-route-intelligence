@@ -108,14 +108,12 @@ def airports_with_fares():
     db = get_db()
 
     query = """
-        SELECT a.iata, a.name, a.city, a.state, a.country, a.lat, a.lon,
-               COUNT(DISTINCT r.dest) as route_count
+        SELECT DISTINCT a.iata, a.name, a.city, a.state, a.country, a.lat, a.lon, a.route_count
         FROM airports a
         JOIN routes r ON a.iata = r.origin
         WHERE a.lat IS NOT NULL AND a.lon IS NOT NULL
           AND EXISTS (SELECT 1 FROM route_fares rf WHERE rf.route_id = r.id)
-        GROUP BY a.iata, a.name, a.city, a.state, a.country, a.lat, a.lon
-        ORDER BY route_count DESC
+        ORDER BY a.route_count DESC
         LIMIT 500
     """
 
