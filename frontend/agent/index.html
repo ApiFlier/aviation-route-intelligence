@@ -124,7 +124,8 @@
         L.control.zoom({ position: 'bottomright' }).addTo(map);
         // Base layer added via layer control
         
-        const mapLayer = L.layerGroup().addTo(map);
+        const airportLayer = L.layerGroup().addTo(map); // base airports — loaded once, never cleared
+        const mapLayer = L.layerGroup().addTo(map);    // route/selection markers — cleared on navigate
         
         // Add default hybrid layer (satellite + labels)
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
@@ -375,7 +376,7 @@
             document.getElementById('info-panel').classList.remove('visible');
             clearMap();
             navStack = [];
-            init(); // Reload airports
+            map.setView([39.8, -98.5], 4);
         }
         // Layer controls
         const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -397,7 +398,7 @@
             'Hybrid': hybridLayer
         }, null, { position: 'bottomright' }).addTo(map);
         
-        // Load top airports on start
+        // Load top airports once — never re-fetched
         async function init() {
             try {
                 const data = await api('/airports/with-fares');
@@ -408,13 +409,13 @@
                     });
                     marker.bindTooltip(`${airport.iata} - ${airport.city}`);
                     marker.on('click', () => selectAirport(airport.iata));
-                    mapLayer.addLayer(marker);
+                    airportLayer.addLayer(marker);
                 }
             } catch (err) {
                 console.error('Failed to load airports:', err);
             }
         }
-        
+
         init();
     </script>
 </body>

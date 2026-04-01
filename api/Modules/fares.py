@@ -3,6 +3,8 @@ from Classes.Database import get_db
 
 fares_bp = Blueprint('fares', __name__)
 
+_airports_with_fares_cache = None
+
 @fares_bp.route('/api/routes/<origin>/<dest>/fares')
 def route_fares(origin, dest):
     """Get fare data for a route by quarter."""
@@ -99,23 +101,28 @@ def airport_routes_fares(iata):
 @fares_bp.route('/api/airports/with-fares')
 def airports_with_fares():
     """Get airports that have fare data."""
+    global _airports_with_fares_cache
+    if _airports_with_fares_cache is not None:
+        return _airports_with_fares_cache
+
     db = get_db()
-    
+
     query = """
-        SELECT DISTINCT a.iata, a.name, a.city, a.state, a.country, a.lat, a.lon,
+        SELECT a.iata, a.name, a.city, a.state, a.country, a.lat, a.lon,
                COUNT(DISTINCT r.dest) as route_count
         FROM airports a
         JOIN routes r ON a.iata = r.origin
-        JOIN route_fares rf ON r.id = rf.route_id
         WHERE a.lat IS NOT NULL AND a.lon IS NOT NULL
+          AND EXISTS (SELECT 1 FROM route_fares rf WHERE rf.route_id = r.id)
         GROUP BY a.iata, a.name, a.city, a.state, a.country, a.lat, a.lon
         ORDER BY route_count DESC
         LIMIT 500
     """
-    
+
     results = db.execute(query, ())
-    
-    return jsonify({
+    _airports_with_fares_cache = jsonify({
         'airports': results,
         'total': len(results)
     })
+
+    return _airports_with_fares_cache
