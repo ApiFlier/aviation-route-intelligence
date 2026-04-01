@@ -69,3 +69,53 @@ def route_fares_summary(origin, dest):
         'carriers': carriers,
         'quarterly': quarterly
     })
+
+@fares_bp.route('/api/airports/<iata>/routes/fares')
+def airport_routes_fares(iata):
+    """Get outbound routes from an airport that have fare data."""
+    db = get_db()
+    
+    query = """
+        SELECT r.dest, a.name as dest_name, a.city as dest_city, a.lat as dest_lat, a.lon as dest_lon,
+               SUM(rf.passengers) as total_passengers,
+               SUM(rf.passengers * rf.avg_fare) / SUM(rf.passengers) as avg_fare
+        FROM route_fares rf
+        JOIN routes r ON rf.route_id = r.id
+        LEFT JOIN airports a ON r.dest = a.iata
+        WHERE r.origin = %s
+        GROUP BY r.dest, a.name, a.city, a.lat, a.lon
+        HAVING avg_fare IS NOT NULL
+        ORDER BY total_passengers DESC
+        LIMIT 100
+    """
+    
+    results = db.execute(query, (iata.upper(),))
+    
+    return jsonify({
+        'origin': iata.upper(),
+        'routes': results
+    })
+
+@fares_bp.route('/api/airports/with-fares')
+def airports_with_fares():
+    """Get airports that have fare data."""
+    db = get_db()
+    
+    query = """
+        SELECT DISTINCT a.iata, a.name, a.city, a.state, a.country, a.lat, a.lon,
+               COUNT(DISTINCT r.dest) as route_count
+        FROM airports a
+        JOIN routes r ON a.iata = r.origin
+        JOIN route_fares rf ON r.id = rf.route_id
+        WHERE a.lat IS NOT NULL AND a.lon IS NOT NULL
+        GROUP BY a.iata, a.name, a.city, a.state, a.country, a.lat, a.lon
+        ORDER BY route_count DESC
+        LIMIT 500
+    """
+    
+    results = db.execute(query, ())
+    
+    return jsonify({
+        'airports': results,
+        'total': len(results)
+    })

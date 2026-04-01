@@ -503,8 +503,8 @@
                     const ontimeBadge = getOntimeBadge(carrier.ontime_pct);
                     
                     html += `<div class="carrier-item" onclick="selectCarrier('${origin}', '${dest}', '${carrier.carrier_code}')">`;
-                    html += `<div><span class="carrier-code">${carrier.carrier_code}</span>${ontimeBadge}</div>`;
-                    html += `<div class="carrier-name">${carrier.carrier_name || 'Unknown'}</div>`;
+                    html += `<div><span class="carrier-name">${carrier.carrier_name || 'Unknown'}</span>${ontimeBadge}</div>`;
+                    html += `<div class="carrier-code">${carrier.carrier_code}</div>`;
                     if (carrier.marketing_carrier && carrier.marketing_carrier !== carrier.carrier_code) {
                         html += `<div class="carrier-marketing"><i class="fas fa-tag"></i> Marketed as: ${carrier.marketing_name || carrier.marketing_carrier}</div>`;
                     }
@@ -530,8 +530,12 @@
         
         async function selectCarrier(fromIata, toIata, carrierCode) {
             try {
-                const carriersData = await api(`/routes/${fromIata}/${toIata}/carriers`);
+                const [carriersData, faresData] = await Promise.all([
+                    api(`/routes/${fromIata}/${toIata}/carriers`),
+                    api(`/routes/${fromIata}/${toIata}/fares`).catch(() => ({ fares: [] }))
+                ]);
                 const carrier = carriersData.carriers.find(c => c.carrier_code === carrierCode);
+                const carrierFares = faresData.fares.filter(f => f.carrier_code === carrierCode);
                 
                 if (!carrier) { alert('Carrier not found'); return; }
                 
@@ -642,6 +646,41 @@
                 } else {
                     html += '<div class="section-header"><i class="fas fa-stopwatch"></i> On-Time Performance</div>';
                     html += '<div class="no-data">No on-time data available for this carrier on this route</div>';
+                }
+                
+                // Fare Analysis
+                if (carrierFares.length > 0) {
+                    html += '<div class="section-header"><i class="fas fa-dollar-sign"></i> Fare Analysis</div>';
+                    
+                    // Calculate yearly averages
+                    const byYear = {};
+                    for (const f of carrierFares) {
+                        if (!byYear[f.year]) byYear[f.year] = { total: 0, pax: 0 };
+                        byYear[f.year].total += f.avg_fare * f.passengers;
+                        byYear[f.year].pax += f.passengers;
+                    }
+                    
+                    html += '<div class="stat-grid">';
+                    const years = Object.keys(byYear).sort().reverse();
+                    for (const year of years.slice(0, 3)) {
+                        const avgFare = byYear[year].pax > 0 ? Math.round(byYear[year].total / byYear[year].pax) : 0;
+                        html += `<div class="stat-box"><div class="icon"><i class="fas fa-dollar-sign"></i></div><div class="value">$${avgFare}</div><div class="label">${year} Avg</div></div>`;
+                    }
+                    html += '</div>';
+                    
+                    // Quarterly breakdown for latest year
+                    const latestYear = years[0];
+                    const latestFares = carrierFares.filter(f => f.year == latestYear).sort((a,b) => a.quarter - b.quarter);
+                    if (latestFares.length > 0) {
+                        html += '<div class="fare-quarterly">';
+                        html += `<div class="fare-quarterly-title">${latestYear} by Quarter</div>`;
+                        html += '<div class="fare-quarterly-grid">';
+                        for (const q of latestFares) {
+                            const fare = Math.round(q.avg_fare);
+                            html += `<div class="fare-q"><div class="fare-q-label">Q${q.quarter}</div><div class="fare-q-value">$${fare}</div><div class="fare-q-pax">${formatNum(q.passengers)} pax</div></div>`;
+                        }
+                        html += '</div></div>';
+                    }
                 }
                 
                 // Aircraft types

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlightConn - Find Cheap Flights</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/fontAwesome/css/all.min.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #fff; }
+        #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        
+        .header-bar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+            background: rgba(26,26,46,0.95); backdrop-filter: blur(10px);
+            padding: 12px 20px; display: flex; align-items: center; gap: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .logo { font-size: 1.3rem; font-weight: 300; letter-spacing: 0.05em; }
+        .logo span { color: #4cc9f0; }
+        .logo a { color: inherit; text-decoration: none; }
+        
+        .search-box { position: relative; flex: 1; max-width: 400px; }
+        .search-box input {
+            width: 100%; padding: 10px 40px 10px 15px; border-radius: 25px;
+            border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1);
+            color: #fff; font-size: 0.95rem;
+        }
+        .search-box input::placeholder { color: #888; }
+        .search-box button {
+            position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+            background: #4cc9f0; border: none; width: 32px; height: 32px;
+            border-radius: 50%; cursor: pointer; color: #1a1a2e;
+        }
+        
+        .info-panel {
+            position: fixed; top: 60px; right: 0; width: 380px; height: calc(100% - 60px);
+            background: rgba(26,26,46,0.98); z-index: 100; padding: 20px;
+            overflow-y: auto; transform: translateX(100%); transition: transform 0.3s;
+            border-left: 1px solid rgba(255,255,255,0.1);
+        }
+        .info-panel.visible { transform: translateX(0); }
+        .close-btn { position: absolute; top: 15px; right: 15px; background: none; border: none; color: #888; font-size: 1.2rem; cursor: pointer; }
+        .back-btn { background: rgba(255,255,255,0.1); border: none; color: #4cc9f0; padding: 8px 15px; border-radius: 20px; cursor: pointer; margin-bottom: 15px; display: none; }
+        .back-btn.visible { display: inline-flex; align-items: center; gap: 8px; }
+        
+        .airport-header { font-size: 1.8rem; font-weight: bold; display: flex; align-items: center; gap: 10px; }
+        .airport-name { color: #888; font-size: 0.95rem; margin-bottom: 15px; }
+        
+        .section-header { font-size: 0.85rem; color: #4cc9f0; margin: 20px 0 10px; display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+        
+        .route-item {
+            background: rgba(255,255,255,0.05); border-radius: 10px; padding: 12px 15px;
+            margin-bottom: 8px; cursor: pointer; transition: all 0.2s;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .route-item:hover { background: rgba(76,201,240,0.15); }
+        .route-dest { font-weight: 600; font-size: 1.1rem; }
+        .route-city { color: #888; font-size: 0.85rem; }
+        .route-fare { color: #00c864; font-weight: bold; font-size: 1.1rem; }
+        .route-fare-label { color: #666; font-size: 0.7rem; }
+        
+        .fare-hero {
+            background: linear-gradient(135deg, rgba(0,200,100,0.2), rgba(76,201,240,0.2));
+            border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;
+        }
+        .fare-hero-price { font-size: 3rem; font-weight: bold; color: #00c864; }
+        .fare-hero-label { color: #888; font-size: 0.9rem; }
+        
+        .fare-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+        .fare-box { background: rgba(255,255,255,0.05); border-radius: 10px; padding: 15px; text-align: center; }
+        .fare-box.cheap { border: 1px solid rgba(0,200,100,0.3); }
+        .fare-box.expensive { border: 1px solid rgba(255,100,100,0.3); }
+        .fare-box-label { color: #888; font-size: 0.8rem; margin-bottom: 5px; }
+        .fare-box-value { font-size: 1.3rem; font-weight: bold; }
+        .fare-box.cheap .fare-box-value { color: #00c864; }
+        .fare-box.expensive .fare-box-value { color: #ff6b6b; }
+        .fare-box-sub { color: #666; font-size: 0.75rem; margin-top: 3px; }
+        
+        .carrier-fare-item {
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(255,255,255,0.05); border-radius: 8px; padding: 12px 15px; margin-bottom: 8px;
+        }
+        .carrier-info { }
+        .carrier-name { font-weight: 500; }
+        .carrier-type { color: #888; font-size: 0.8rem; }
+        .carrier-price { font-size: 1.2rem; font-weight: bold; color: #4cc9f0; }
+        .carrier-price.budget { color: #00c864; }
+        .carrier-price.premium { color: #f0a500; }
+        
+        .reverse-btn {
+            width: 100%; background: rgba(76,201,240,0.2); border: 1px solid rgba(76,201,240,0.3);
+            color: #4cc9f0; padding: 12px; border-radius: 8px; cursor: pointer; margin-top: 15px;
+            font-size: 0.95rem;
+        }
+        .reverse-btn:hover { background: rgba(76,201,240,0.3); }
+        
+        .tip-box {
+            background: rgba(255,200,0,0.1); border: 1px solid rgba(255,200,0,0.3);
+            border-radius: 8px; padding: 12px; margin-top: 15px;
+        }
+        .tip-box i { color: #ffc800; margin-right: 8px; }
+        .tip-box-text { color: #ccc; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="header-bar">
+        <div class="logo"><a href="/">Flight<span>Conn</span></a></div>
+        <div class="search-box">
+            <input type="text" id="airport-search" placeholder="Search airport (e.g., PIT, LAX, Atlanta)" onkeydown="if(event.key==='Enter')searchAirport()">
+            <button onclick="searchAirport()"><i class="fas fa-search"></i></button>
+        </div>
+    </div>
+    
+    <div class="info-panel" id="info-panel"></div>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/config.js"></script>
+    <script>
+        const map = L.map('map', { zoomControl: false }).setView([39.8, -98.5], 4);
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        // Base layer added via layer control
+        
+        const mapLayer = L.layerGroup().addTo(map);
+        
+        // Add default hybrid layer (satellite + labels)
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '©Esri', maxZoom: 19
+        }).addTo(map);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19
+        }).addTo(map);
+        let navStack = [];
+        
+        async function api(endpoint) {
+            const res = await fetch(CONFIG.API_URL + endpoint);
+            if (!res.ok) throw new Error(`API error: ${res.status}`);
+            return res.json();
+        }
+        
+        function formatNum(n) {
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return (n || 0).toLocaleString();
+        }
+        
+        async function searchAirport() {
+            const input = document.getElementById('airport-search');
+            const query = input.value.trim();
+            if (!query) return;
+            try {
+                const data = await api(`/airports?q=${encodeURIComponent(query)}&limit=1`);
+                if (data.airports.length > 0) { selectAirport(data.airports[0].iata); input.value = ''; }
+                else { alert('Airport not found.'); }
+            } catch (err) { alert('Search failed: ' + err.message); }
+        }
+        
+        function clearMap() { mapLayer.clearLayers(); }
+        
+        function drawArc(start, end, highlight) {
+            const latlngs = [];
+            const offsetX = end[1] - start[1], offsetY = end[0] - start[0];
+            const midLat = (start[0] + end[0]) / 2, midLon = (start[1] + end[1]) / 2;
+            const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY) || 1;
+            const curvature = distance * 0.15;
+            const perpX = -offsetY / distance * curvature, perpY = offsetX / distance * curvature;
+            for (let i = 0; i <= 50; i++) { 
+                const t = i / 50; 
+                latlngs.push([
+                    start[0]*(1-t)*(1-t) + 2*(midLat+perpX)*t*(1-t) + end[0]*t*t, 
+                    start[1]*(1-t)*(1-t) + 2*(midLon+perpY)*t*(1-t) + end[1]*t*t
+                ]); 
+            }
+            return L.polyline(latlngs, { color: '#4cc9f0', weight: highlight ? 4 : 2, opacity: highlight ? 0.9 : 0.4 });
+        }
+        
+        async function selectAirport(iata) {
+            try {
+                const [airportData, routesData] = await Promise.all([
+                    api(`/airports/${iata}`),
+                    api(`/airports/${iata}/routes/fares`)
+                ]);
+                
+                const airport = airportData.airport;
+                const routes = routesData.routes;
+                
+                navStack = [{ type: 'airport', iata }];
+                clearMap();
+                
+                const marker = L.circleMarker([airport.lat, airport.lon], { 
+                    radius: 12, fillColor: '#4cc9f0', fillOpacity: 0.9, color: '#fff', weight: 2 
+                });
+                marker.bindTooltip(iata, { permanent: true, direction: 'top' });
+                mapLayer.addLayer(marker);
+                
+                
+                
+                for (const route of routes) {
+                    const destCode = route.dest;
+                    const destLat = route.dest_lat;
+                    const destLon = route.dest_lon;
+                    if (!destLat || !destLon) continue;
+                    
+                    const destMarker = L.circleMarker([destLat, destLon], { 
+                        radius: 6, fillColor: '#00d9ff', fillOpacity: 0.7, color: '#fff', weight: 1 
+                    });
+                    destMarker.bindTooltip(destCode);
+                    destMarker.on('click', () => selectRoute(iata, destCode));
+                    mapLayer.addLayer(destMarker);
+                    mapLayer.addLayer(drawArc([airport.lat, airport.lon], [destLat, destLon], false));
+                }
+                
+                let html = '<button class="close-btn" onclick="closeInfoPanel()"><i class="fas fa-times"></i></button>';
+                html += `<div class="airport-header"><i class="fas fa-plane-departure"></i>${iata}</div>`;
+                html += `<div class="airport-name">${airport.name}, ${airport.city}</div>`;
+                
+                html += `<div class="section-header"><i class="fas fa-map-marker-alt"></i> Where do you want to go?</div>`;
+                
+                // Sort routes by passengers
+                routes.sort((a, b) => (b.total_passengers || 0) - (a.total_passengers || 0));
+                
+                for (const route of routes.slice(0, 30)) {
+                    const destCode = route.dest;
+                    const destCity = route.dest_city;
+                    const fare = route.avg_fare;
+                    
+                    html += `<div class="route-item" onclick="selectRoute('${iata}', '${destCode}')">`;
+                    html += `<div><div class="route-dest">${destCode}</div><div class="route-city">${destCity || ''}</div></div>`;
+                    if (fare) {
+                        html += `<div style="text-align:right;"><div class="route-fare">$${Math.round(fare)}</div><div class="route-fare-label">avg fare</div></div>`;
+                    }
+                    html += `</div>`;
+                }
+                
+                const panel = document.getElementById('info-panel');
+                panel.innerHTML = html;
+                panel.classList.add('visible');
+                
+            } catch (err) {
+                console.error('Failed to load airport:', err);
+                alert('Failed to load airport: ' + err.message);
+            }
+        }
+        
+        async function selectRoute(fromIata, toIata) {
+            try {
+                const [routeData, faresData] = await Promise.all([
+                    api(`/routes/${fromIata}/${toIata}`),
+                    api(`/routes/${fromIata}/${toIata}/fares/summary`).catch(() => ({ carriers: [], quarterly: [] }))
+                ]);
+                
+                const route = routeData.route;
+                const carriers = faresData.carriers || [];
+                const quarterly = faresData.quarterly || [];
+                
+                navStack = [{ type: 'airport', iata: fromIata }, { type: 'route', from: fromIata, to: toIata }];
+                clearMap();
+                
+                const fromCoords = [route.origin_lat, route.origin_lon];
+                const toCoords = [route.dest_lat, route.dest_lon];
+                
+                for (const [code, coords, color] of [[fromIata, fromCoords, '#4cc9f0'], [toIata, toCoords, '#00c864']]) {
+                    const marker = L.circleMarker(coords, { radius: 10, fillColor: color, fillOpacity: 0.9, color: '#fff', weight: 2 });
+                    marker.bindTooltip(code, { permanent: true, direction: 'top' });
+                    mapLayer.addLayer(marker);
+                }
+                mapLayer.addLayer(drawArc(fromCoords, toCoords, true));
+                
+                // Calculate insights
+                let cheapestQ = null, expensiveQ = null;
+                if (quarterly.length > 0) {
+                    const sorted = [...quarterly].sort((a,b) => a.weighted_avg_fare - b.weighted_avg_fare);
+                    cheapestQ = sorted[0];
+                    expensiveQ = sorted[sorted.length - 1];
+                }
+                
+                let avgFare = null;
+                if (carriers.length > 0) {
+                    avgFare = Math.round(carriers.reduce((sum, c) => sum + (c.weighted_avg_fare * c.total_passengers), 0) / carriers.reduce((sum, c) => sum + c.total_passengers, 0));
+                } else if (quarterly.length > 0) {
+                    avgFare = Math.round(quarterly.reduce((sum, q) => sum + (q.weighted_avg_fare * q.total_passengers), 0) / quarterly.reduce((sum, q) => sum + q.total_passengers, 0));
+                }
+                
+                let html = '<button class="close-btn" onclick="closeInfoPanel()"><i class="fas fa-times"></i></button>';
+                html += `<button class="back-btn visible" onclick="goBack()"><i class="fas fa-arrow-left"></i> Back</button>`;
+                
+                html += `<div class="airport-header">${fromIata} <i class="fas fa-arrow-right" style="font-size:1rem;margin:0 10px;color:#4cc9f0;"></i> ${toIata}</div>`;
+                html += `<div class="airport-name">${route.origin_city || ''} to ${route.dest_city || ''} · ${route.distance || 0} miles</div>`;
+                
+                if (avgFare) {
+                    html += `<div class="fare-hero">`;
+                    html += `<div class="fare-hero-price">$${avgFare}</div>`;
+                    html += `<div class="fare-hero-label">Average fare (2025)</div>`;
+                    html += `</div>`;
+                }
+                
+                if (cheapestQ && expensiveQ && cheapestQ !== expensiveQ) {
+                    const quarters = ['', 'Jan-Mar', 'Apr-Jun', 'Jul-Sep', 'Oct-Dec'];
+                    html += `<div class="fare-comparison">`;
+                    html += `<div class="fare-box cheap">`;
+                    html += `<div class="fare-box-label"><i class="fas fa-thumbs-up"></i> Cheapest</div>`;
+                    html += `<div class="fare-box-value">$${Math.round(cheapestQ.weighted_avg_fare)}</div>`;
+                    html += `<div class="fare-box-sub">${quarters[cheapestQ.quarter]} ${cheapestQ.year}</div>`;
+                    html += `</div>`;
+                    html += `<div class="fare-box expensive">`;
+                    html += `<div class="fare-box-label"><i class="fas fa-thumbs-down"></i> Priciest</div>`;
+                    html += `<div class="fare-box-value">$${Math.round(expensiveQ.weighted_avg_fare)}</div>`;
+                    html += `<div class="fare-box-sub">${quarters[expensiveQ.quarter]} ${expensiveQ.year}</div>`;
+                    html += `</div>`;
+                    html += `</div>`;
+                }
+                
+                if (carriers.length > 0) {
+                    html += `<div class="section-header"><i class="fas fa-plane"></i> Airlines by Price</div>`;
+                    
+                    // Sort by fare
+                    const sortedCarriers = [...carriers].sort((a,b) => a.weighted_avg_fare - b.weighted_avg_fare);
+                    const cheapest = sortedCarriers[0].weighted_avg_fare;
+                    const most = sortedCarriers[sortedCarriers.length - 1].weighted_avg_fare;
+                    
+                    for (const c of sortedCarriers) {
+                        const fare = Math.round(c.weighted_avg_fare);
+                        let priceClass = '';
+                        if (c.weighted_avg_fare === cheapest) priceClass = 'budget';
+                        else if (c.weighted_avg_fare === most) priceClass = 'premium';
+                        
+                        let typeLabel = '';
+                        if (c.avg_yield < 0.15) typeLabel = 'Ultra Low-Cost';
+                        else if (c.avg_yield < 0.25) typeLabel = 'Low-Cost';
+                        else if (c.avg_yield > 0.40) typeLabel = 'Premium';
+                        else typeLabel = 'Full Service';
+                        
+                        html += `<div class="carrier-fare-item">`;
+                        html += `<div class="carrier-info"><div class="carrier-name">${c.carrier_name || c.carrier_code}</div><div class="carrier-type">${typeLabel} · ${formatNum(c.total_passengers)} passengers</div></div>`;
+                        html += `<div class="carrier-price ${priceClass}">$${fare}</div>`;
+                        html += `</div>`;
+                    }
+                }
+                
+                html += `<button class="reverse-btn" onclick="selectRoute('${toIata}', '${fromIata}')"><i class="fas fa-exchange-alt"></i> View return: ${toIata} → ${fromIata}</button>`;
+                
+                if (cheapestQ && expensiveQ && cheapestQ !== expensiveQ) {
+                    html += `<div class="tip-box"><i class="fas fa-lightbulb"></i><span class="tip-box-text">Pro tip: Flying in Q${cheapestQ.quarter} could save you $${Math.round(expensiveQ.weighted_avg_fare - cheapestQ.weighted_avg_fare)} vs peak season.</span></div>`;
+                } else if (quarterly.length === 1) {
+                    html += `<div class="tip-box"><i class="fas fa-lightbulb"></i><span class="tip-box-text">Limited fare data available for this route.</span></div>`;
+                }
+                
+                const panel = document.getElementById('info-panel');
+                panel.innerHTML = html;
+                panel.classList.add('visible');
+                
+                const bounds = L.latLngBounds(fromCoords, toCoords);
+                map.fitBounds(bounds, { padding: [100, 100] });
+                
+            } catch (err) {
+                console.error('Failed to load route:', err);
+                alert('Failed to load route: ' + err.message);
+            }
+        }
+        
+        function goBack() {
+            if (navStack.length > 1) {
+                navStack.pop();
+                const prev = navStack[navStack.length - 1];
+                navStack = [];
+                if (prev.type === 'airport') selectAirport(prev.iata);
+                else if (prev.type === 'route') selectRoute(prev.from, prev.to);
+            }
+        }
+        
+        function closeInfoPanel() {
+            document.getElementById('info-panel').classList.remove('visible');
+            clearMap();
+            navStack = [];
+            init(); // Reload airports
+        }
+        // Layer controls
+        const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '©OpenStreetMap ©CARTO', maxZoom: 19
+        });
+        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '©Esri', maxZoom: 19
+        });
+        
+        const labelsLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19
+        });
+        
+        const hybridLayer = L.layerGroup([satelliteLayer, labelsLayer]);
+        
+        L.control.layers({
+            'Dark': darkLayer,
+            'Satellite': satelliteLayer,
+            'Hybrid': hybridLayer
+        }, null, { position: 'bottomright' }).addTo(map);
+        
+        // Load top airports on start
+        async function init() {
+            try {
+                const data = await api('/airports/with-fares');
+                for (const airport of data.airports) {
+                    const size = Math.min(Math.max(airport.route_count / 100, 3), 10);
+                    const marker = L.circleMarker([airport.lat, airport.lon], {
+                        radius: size, fillColor: '#4cc9f0', fillOpacity: 0.6, color: '#fff', weight: 1
+                    });
+                    marker.bindTooltip(`${airport.iata} - ${airport.city}`);
+                    marker.on('click', () => selectAirport(airport.iata));
+                    mapLayer.addLayer(marker);
+                }
+            } catch (err) {
+                console.error('Failed to load airports:', err);
+            }
+        }
+        
+        init();
+    </script>
+</body>
+</html>
