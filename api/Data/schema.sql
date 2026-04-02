@@ -125,6 +125,23 @@ CREATE TABLE IF NOT EXISTS stats (
     stat_value BIGINT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Typical scheduled flights derived from On-Time Performance data
+CREATE TABLE IF NOT EXISTS route_schedules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    origin VARCHAR(5) NOT NULL,
+    dest VARCHAR(5) NOT NULL,
+    carrier_code VARCHAR(10) NOT NULL,
+    carrier_name VARCHAR(100),
+    flight_number VARCHAR(10),
+    day_of_week TINYINT,          -- 1=Mon, 7=Sun
+    typical_dep_time SMALLINT,    -- minutes from midnight (e.g. 375 = 6:15am)
+    typical_arr_time SMALLINT,
+    frequency INT DEFAULT 0,      -- how many times this schedule appeared in the data
+    avg_delay DECIMAL(5,1),       -- average departure delay minutes
+    UNIQUE KEY uk_sched (origin, dest, carrier_code, flight_number, day_of_week),
+    INDEX idx_route (origin, dest)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- DB1B fare data by route/carrier/quarter
 CREATE TABLE IF NOT EXISTS route_fares (
     id INT AUTO_INCREMENT PRIMARY KEY,

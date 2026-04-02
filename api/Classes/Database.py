@@ -3,6 +3,7 @@ Database connection manager for FlightConn API
 """
 
 import os
+import threading
 from decimal import Decimal
 import MySQLdb
 from MySQLdb.cursors import DictCursor
@@ -26,10 +27,11 @@ def convert_value(val):
 
 
 class Database:
-    """MySQL database connection manager."""
-    
+    """MySQL database connection manager with per-thread connections."""
+
     _instance = None
-    
+    _local = threading.local()
+
     def __init__(self):
         self.config = {
             'host': os.getenv('MYSQL_HOST', 'localhost'),
@@ -40,45 +42,72 @@ class Database:
             'charset': 'utf8mb4',
             'use_unicode': True,
         }
-    
+
     @classmethod
     def get_instance(cls):
         """Get singleton instance."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
-    
+
     def get_connection(self):
-        """Get a new database connection."""
-        return MySQLdb.connect(**self.config)
+        """Get a per-thread persistent connection, reconnecting if needed."""
+        conn = getattr(self._local, 'conn', None)
+        if conn is None:
+            self._local.conn = MySQLdb.connect(**self.config)
+        else:
+            try:
+                conn.ping(True)
+            except Exception:
+                self._local.conn = MySQLdb.connect(**self.config)
+        return self._local.conn
     
     @contextmanager
     def cursor(self, dict_cursor=True):
         """Context manager for database cursor."""
         conn = self.get_connection()
+        cur = None
         try:
-            cursor = conn.cursor(DictCursor if dict_cursor else None)
-            yield cursor
+            cur = conn.cursor(DictCursor if dict_cursor else None)
+            yield cur
             conn.commit()
         except Exception as e:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             raise e
         finally:
-            cursor.close()
-            conn.close()
-    
+            if cur:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+
     def execute(self, query, params=None):
-        """Execute a query and return all results."""
-        with self.cursor() as cur:
-            cur.execute(query, params or ())
-            results = cur.fetchall()
-            return [convert_row(row) for row in results]
-    
+        """Execute a query and return all results. Retries once on lost connection."""
+        for attempt in range(2):
+            try:
+                with self.cursor() as cur:
+                    cur.execute(query, params or ())
+                    results = cur.fetchall()
+                    return [convert_row(row) for row in results]
+            except MySQLdb.OperationalError:
+                self._local.conn = None
+                if attempt == 1:
+                    raise
+
     def execute_one(self, query, params=None):
-        """Execute a query and return single result."""
-        with self.cursor() as cur:
-            cur.execute(query, params or ())
-            return convert_row(cur.fetchone())
+        """Execute a query and return single result. Retries once on lost connection."""
+        for attempt in range(2):
+            try:
+                with self.cursor() as cur:
+                    cur.execute(query, params or ())
+                    return convert_row(cur.fetchone())
+            except MySQLdb.OperationalError:
+                self._local.conn = None
+                if attempt == 1:
+                    raise
     
     def execute_many(self, query, params_list):
         """Execute a query with multiple parameter sets."""

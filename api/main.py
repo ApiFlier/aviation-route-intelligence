@@ -8,7 +8,7 @@ import os
 from flask import Flask, jsonify
 from flask_cors import CORS
 
-from Modules import airports_bp, routes_bp, carriers_bp, fares_bp
+from Modules import airports_bp, routes_bp, carriers_bp, fares_bp, schedules_bp
 from Classes import get_db
 
 app = Flask(__name__)
@@ -19,6 +19,7 @@ app.register_blueprint(airports_bp, url_prefix='/api')
 app.register_blueprint(routes_bp, url_prefix='/api')
 app.register_blueprint(carriers_bp, url_prefix='/api')
 app.register_blueprint(fares_bp)
+app.register_blueprint(schedules_bp)
 
 
 @app.route('/')

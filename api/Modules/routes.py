@@ -154,46 +154,64 @@ def get_route_carriers(origin, dest):
         ORDER BY passengers DESC
     """, (route['id'],))
     
-    # Parse JSON and compute derived stats
-    for carrier in carriers:
-        if carrier['aircraft_types']:
-            carrier['aircraft_types'] = json.loads(carrier['aircraft_types'])
-        else:
-            carrier['aircraft_types'] = {}
-        
-        # Compute on-time percentage
-        if carrier['ontime_arrived'] and carrier['ontime_arrived'] > 0:
-            carrier['ontime_pct'] = round(carrier['ontime_on_time'] / carrier['ontime_arrived'] * 100, 1)
-        else:
-            carrier['ontime_pct'] = None
-        
-        # Compute cancellation rate
-        if carrier['ontime_flights'] and carrier['ontime_flights'] > 0:
-            carrier['cancel_pct'] = round(carrier['ontime_cancelled'] / carrier['ontime_flights'] * 100, 1)
-        else:
-            carrier['cancel_pct'] = None
-        
-        # Compute average arrival delay (for arrived flights)
-        if carrier['ontime_arrived'] and carrier['ontime_arrived'] > 0:
-            carrier['avg_arr_delay'] = round(carrier['delay_total_arr_mins'] / carrier['ontime_arrived'], 1)
-        else:
-            carrier['avg_arr_delay'] = None
-        
-        # Compute average taxi times
-        if carrier['ontime_arrived'] and carrier['ontime_arrived'] > 0:
-            carrier['avg_taxi_out'] = round(carrier['taxi_out_total'] / carrier['ontime_arrived'], 1)
-            carrier['avg_taxi_in'] = round(carrier['taxi_in_total'] / carrier['ontime_arrived'], 1)
-        else:
-            carrier['avg_taxi_out'] = None
-            carrier['avg_taxi_in'] = None
-        
-        # Load factor
-        if carrier['seats'] and carrier['seats'] > 0:
-            carrier['load_factor'] = round(carrier['passengers'] / carrier['seats'] * 100, 1)
-        else:
-            carrier['load_factor'] = None
-    
-    return jsonify({'carriers': carriers})
+    result = []
+    for c in carriers:
+        ac_types = json.loads(c['aircraft_types']) if c['aircraft_types'] else {}
+        arrived = c['ontime_arrived'] or 0
+        tracked = c['ontime_flights'] or 0
+
+        result.append({
+            # Identity
+            'carrier_code':      c['carrier_code'],
+            'carrier_name':      c['carrier_name'],
+            'marketing_carrier': c['marketing_carrier'] if c['marketing_carrier'] != c['carrier_code'] else None,
+            'marketing_name':    c['marketing_name'],
+            'branded_code_share': bool(c['branded_code_share']),
+
+            # Operations (T-100 segment data)
+            'departures_scheduled': c['departures_scheduled'],
+            'departures_performed': c['departures_performed'],
+            'completion_rate':   round(c['departures_performed'] / c['departures_scheduled'] * 100, 1) if c['departures_scheduled'] else None,
+            'seats':             c['seats'],
+            'load_factor':       round(c['passengers'] / c['seats'] * 100, 1) if c['seats'] else None,
+            'avg_flight_mins':   round(c['air_time'] / c['departures_performed']) if c['departures_performed'] else None,
+            'avg_taxi_out_mins': round(c['taxi_out_total'] / arrived, 1) if arrived else None,
+            'avg_taxi_in_mins':  round(c['taxi_in_total'] / arrived, 1) if arrived else None,
+
+            # On-Time Performance (Marketing On-Time data)
+            'ontime_pct':        round(c['ontime_on_time'] / arrived * 100, 1) if arrived else None,
+            'cancel_pct':        round(c['ontime_cancelled'] / tracked * 100, 1) if tracked else None,
+            'avg_arr_delay_mins': round(c['delay_total_arr_mins'] / arrived, 1) if arrived else None,
+            'flights_tracked':   tracked,
+            'flights_on_time':   c['ontime_on_time'],
+            'flights_delayed':   c['ontime_delayed'],
+            'flights_cancelled': c['ontime_cancelled'],
+            'flights_diverted':  c['ontime_diverted'],
+            'delay_causes': {
+                'carrier_mins':      c['delay_carrier_mins'],
+                'weather_mins':      c['delay_weather_mins'],
+                'nas_mins':          c['delay_nas_mins'],
+                'security_mins':     c['delay_security_mins'],
+                'late_aircraft_mins': c['delay_late_aircraft_mins'],
+            } if tracked else None,
+            'cancel_causes': {
+                'carrier': c['cancel_carrier'],
+                'weather': c['cancel_weather'],
+                'nas':     c['cancel_nas'],
+                'security': c['cancel_security'],
+            } if c['ontime_cancelled'] else None,
+
+            # Traffic (T-100)
+            'passengers':   c['passengers'],
+            'freight_lbs':  c['freight'],
+            'mail_lbs':     c['mail'],
+            'payload_lbs':  c['payload'],
+
+            # Equipment
+            'aircraft_types': ac_types,
+        })
+
+    return jsonify({'carriers': result})
 
 
 @routes_bp.route('/routes/top')

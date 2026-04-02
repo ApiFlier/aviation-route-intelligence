@@ -23,7 +23,7 @@ services:
       - MYSQL_USER=flightconn
       - MYSQL_PASSWORD=flightconn
       - MYSQL_DATABASE=flightconn
-      - API_DEBUG=true
+      - API_DEBUG=false
     depends_on:
       db:
         condition: service_healthy

@@ -593,6 +593,142 @@ class DataProcessor:
         
         print(f"  Saved {saved:,} total fare records")
 
+    def _hhmm_to_mins(self, val: str):
+        """Convert HHMM string/int to minutes from midnight. Returns None if invalid."""
+        try:
+            v = int(val)
+            if v < 0 or v > 2400:
+                return None
+            h = v // 100
+            m = v % 100
+            if h > 23 or m > 59:
+                return None
+            return h * 60 + m
+        except (ValueError, TypeError):
+            return None
+
+    def process_schedules_data(self) -> None:
+        """Process On-Time CSV files to build route_schedules table."""
+        print("Processing schedules data from On-Time files...")
+
+        pattern = os.path.join(self.data_dir, self.patterns['ontime'])
+        files = sorted(glob.glob(pattern))
+
+        if not files:
+            print("  No on-time files found for schedule processing")
+            return
+
+        # Need airports dict to filter; load from DB if not already populated
+        if not self.airports:
+            print("  Loading airports from DB for filtering...")
+            rows = self.db.execute("SELECT iata FROM airports")
+            for row in rows:
+                self.airports[row['iata']] = True
+
+        print(f"  Found {len(files)} on-time files")
+
+        # Key: (origin, dest, carrier_code, flight_number, day_of_week)
+        schedules = {}
+        total_rows = 0
+
+        for filepath in files:
+            filename = os.path.basename(filepath)
+            print(f"  Processing {filename}...")
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    origin = row.get('ORIGIN', '').strip()
+                    dest = row.get('DEST', '').strip()
+                    carrier = row.get('MKT_UNIQUE_CARRIER', '').strip()
+                    flight_num = row.get('MKT_CARRIER_FL_NUM', '').strip()
+                    dow = self._safe_int(row.get('DAY_OF_WEEK'))
+
+                    if not origin or not dest or not carrier or not flight_num or not dow:
+                        continue
+                    if origin not in self.airports or dest not in self.airports:
+                        continue
+
+                    crs_dep = row.get('CRS_DEP_TIME', '').strip()
+                    crs_arr = row.get('CRS_ARR_TIME', '').strip()
+                    dep_mins = self._hhmm_to_mins(crs_dep)
+                    arr_mins = self._hhmm_to_mins(crs_arr)
+                    if dep_mins is None or arr_mins is None:
+                        continue
+
+                    key = (origin, dest, carrier, flight_num, dow)
+                    if key not in schedules:
+                        schedules[key] = {
+                            'dep_sum': 0, 'arr_sum': 0, 'count': 0,
+                            'delay_sum': 0.0, 'delay_count': 0,
+                        }
+
+                    s = schedules[key]
+                    s['dep_sum'] += dep_mins
+                    s['arr_sum'] += arr_mins
+                    s['count'] += 1
+
+                    cancelled = self._safe_int(row.get('CANCELLED'))
+                    if not cancelled:
+                        dep_delay = self._safe_float(row.get('DEP_DELAY') or '0')
+                        s['delay_sum'] += dep_delay
+                        s['delay_count'] += 1
+
+                    total_rows += 1
+
+        print(f"  Aggregated {len(schedules):,} combinations from {total_rows:,} rows")
+
+        # Need carriers dict for names; load from DB if not populated
+        if not self.carriers:
+            rows = self.db.execute("SELECT code, name FROM carriers")
+            self.carriers = {r['code']: r['name'] for r in rows}
+
+        # Clear and repopulate
+        self.db.execute_write("TRUNCATE TABLE route_schedules")
+
+        inserted = 0
+        batch = []
+        for (origin, dest, carrier, flight_num, dow), s in schedules.items():
+            if s['count'] < 4:
+                continue
+            avg_dep = round(s['dep_sum'] / s['count'])
+            avg_arr = round(s['arr_sum'] / s['count'])
+            avg_delay = round(s['delay_sum'] / s['delay_count'], 1) if s['delay_count'] > 0 else None
+            carrier_name = self.carriers.get(carrier, '')
+            batch.append((origin, dest, carrier, carrier_name, flight_num, dow, avg_dep, avg_arr, s['count'], avg_delay))
+
+            if len(batch) >= 1000:
+                self.db.execute_many("""
+                    INSERT INTO route_schedules
+                    (origin, dest, carrier_code, carrier_name, flight_number, day_of_week,
+                     typical_dep_time, typical_arr_time, frequency, avg_delay)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE
+                        carrier_name=VALUES(carrier_name),
+                        typical_dep_time=VALUES(typical_dep_time),
+                        typical_arr_time=VALUES(typical_arr_time),
+                        frequency=VALUES(frequency),
+                        avg_delay=VALUES(avg_delay)
+                """, batch)
+                inserted += len(batch)
+                batch = []
+
+        if batch:
+            self.db.execute_many("""
+                INSERT INTO route_schedules
+                (origin, dest, carrier_code, carrier_name, flight_number, day_of_week,
+                 typical_dep_time, typical_arr_time, frequency, avg_delay)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                    carrier_name=VALUES(carrier_name),
+                    typical_dep_time=VALUES(typical_dep_time),
+                    typical_arr_time=VALUES(typical_arr_time),
+                    frequency=VALUES(frequency),
+                    avg_delay=VALUES(avg_delay)
+            """, batch)
+            inserted += len(batch)
+
+        print(f"  Inserted {inserted:,} schedule records (4+ occurrences)")
+
     def _new_carrier_record(self, name: str) -> dict:
         """Create a new carrier record with all fields initialized."""
         return {
@@ -797,6 +933,7 @@ class DataProcessor:
 
         self.save_to_database()
         self.build_fare_flags()
+        self.process_schedules_data()
         
         stats = self.db.execute("SELECT stat_key, stat_value FROM stats")
         print("\n" + "=" * 60)
