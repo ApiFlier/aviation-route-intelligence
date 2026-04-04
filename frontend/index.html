@@ -775,72 +775,65 @@
                     html += '<div class="no-data">No fare data available for this carrier on this route</div>';
                 }
 
-                // ── 3. Operations ─────────────────────────────────────────────
-                if (hasOps) {
-                    html += '<div class="section-header"><i class="fas fa-plane-departure"></i> Operations</div>';
+                // ── 3. Stats rows (no section headers) ───────────────────────
+                // Row 1: Scheduled, Performed, Cancelled %
+                if (hasOps || hasOntime) {
+                    const cancelClass = (c.cancel_pct ?? 99) <= 2 ? 'green' : (c.cancel_pct <= 5 ? 'yellow' : 'red');
                     html += '<div class="stat-grid">';
                     html += `<div class="stat-box"><div class="icon"><i class="fas fa-calendar"></i></div><div class="value">${formatNum(c.departures_scheduled)}</div><div class="label">Scheduled</div></div>`;
                     html += `<div class="stat-box green"><div class="icon"><i class="fas fa-check"></i></div><div class="value">${formatNum(c.departures_performed)}</div><div class="label">Performed</div></div>`;
-                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-chart-line"></i></div><div class="value">${c.completion_rate ?? '—'}%</div><div class="label">Completion</div></div>`;
+                    html += `<div class="stat-box ${cancelClass}"><div class="icon"><i class="fas fa-ban"></i></div><div class="value">${c.cancel_pct ?? 0}%</div><div class="label">Cancelled</div></div>`;
                     html += '</div>';
+                }
+                // Row 2: On-Time %, Avg Delay, Avg Flight Time
+                if (hasOntime) {
+                    const ontimeClass = c.ontime_pct >= 80 ? 'green' : (c.ontime_pct >= 70 ? 'yellow' : 'red');
+                    const delayClass = (c.avg_arr_delay_mins ?? 99) <= 10 ? 'green' : (c.avg_arr_delay_mins <= 20 ? 'yellow' : 'red');
                     html += '<div class="stat-grid">';
-                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-chair"></i></div><div class="value">${formatNum(c.seats)}</div><div class="label">Total Seats</div></div>`;
-                    html += `<div class="stat-box green"><div class="icon"><i class="fas fa-percentage"></i></div><div class="value">${c.load_factor ?? '—'}%</div><div class="label">Load Factor</div></div>`;
+                    html += `<div class="stat-box ${ontimeClass}"><div class="icon"><i class="fas fa-clock"></i></div><div class="value">${c.ontime_pct ?? 0}%</div><div class="label">On-Time</div></div>`;
+                    html += `<div class="stat-box ${delayClass}"><div class="icon"><i class="fas fa-hourglass-half"></i></div><div class="value">${c.avg_arr_delay_mins ?? 0} min</div><div class="label">Avg Delay</div></div>`;
                     html += `<div class="stat-box cyan"><div class="icon"><i class="fas fa-clock"></i></div><div class="value">${c.avg_flight_mins ?? '—'} min</div><div class="label">Avg Flight</div></div>`;
                     html += '</div>';
                 }
-
-                // ── 4. On-Time Performance ────────────────────────────────────
-                if (hasOntime) {
-                    html += '<div class="section-header"><i class="fas fa-stopwatch"></i> On-Time Performance</div>';
-                    html += '<div class="stat-grid">';
-                    const ontimeClass = c.ontime_pct >= 80 ? 'green' : (c.ontime_pct >= 70 ? 'yellow' : 'red');
-                    html += `<div class="stat-box ${ontimeClass}"><div class="icon"><i class="fas fa-clock"></i></div><div class="value">${c.ontime_pct ?? 0}%</div><div class="label">On-Time</div></div>`;
-                    const cancelClass = (c.cancel_pct ?? 99) <= 2 ? 'green' : (c.cancel_pct <= 5 ? 'yellow' : 'red');
-                    html += `<div class="stat-box ${cancelClass}"><div class="icon"><i class="fas fa-ban"></i></div><div class="value">${c.cancel_pct ?? 0}%</div><div class="label">Cancelled</div></div>`;
-                    const delayClass = (c.avg_arr_delay_mins ?? 99) <= 10 ? 'green' : (c.avg_arr_delay_mins <= 20 ? 'yellow' : 'red');
-                    html += `<div class="stat-box ${delayClass}"><div class="icon"><i class="fas fa-hourglass-half"></i></div><div class="value">${c.avg_arr_delay_mins ?? 0} min</div><div class="label">Avg Delay</div></div>`;
-                    html += '</div>';
-                    html += '<div class="stat-grid">';
-                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-plane-arrival"></i></div><div class="value">${formatNum(c.flights_on_time)}</div><div class="label">On-Time</div></div>`;
-                    html += `<div class="stat-box orange"><div class="icon"><i class="fas fa-clock"></i></div><div class="value">${formatNum(c.flights_delayed)}</div><div class="label">Delayed</div></div>`;
-                    html += `<div class="stat-box red"><div class="icon"><i class="fas fa-times-circle"></i></div><div class="value">${formatNum(c.flights_cancelled)}</div><div class="label">Cancelled</div></div>`;
-                    html += '</div>';
-                    if (c.delay_causes) {
-                        const dc = c.delay_causes;
-                        const total = dc.carrier_mins + dc.weather_mins + dc.nas_mins + dc.security_mins + dc.late_aircraft_mins;
-                        if (total > 0) {
-                            const pct = (v) => (v / total * 100).toFixed(0);
-                            html += '<div class="delay-bar">';
-                            html += `<div class="delay-bar-label"><span>Delay Causes</span><span>${formatNum(total)} total mins</span></div>`;
-                            html += '<div class="delay-bar-track">';
-                            if (pct(dc.carrier_mins) > 0)      html += `<div class="delay-bar-segment carrier" style="width:${pct(dc.carrier_mins)}%"></div>`;
-                            if (pct(dc.weather_mins) > 0)      html += `<div class="delay-bar-segment weather" style="width:${pct(dc.weather_mins)}%"></div>`;
-                            if (pct(dc.nas_mins) > 0)          html += `<div class="delay-bar-segment nas" style="width:${pct(dc.nas_mins)}%"></div>`;
-                            if (pct(dc.security_mins) > 0)     html += `<div class="delay-bar-segment security" style="width:${pct(dc.security_mins)}%"></div>`;
-                            if (pct(dc.late_aircraft_mins) > 0) html += `<div class="delay-bar-segment late" style="width:${pct(dc.late_aircraft_mins)}%"></div>`;
-                            html += '</div><div class="delay-legend">';
-                            html += `<div class="delay-legend-item"><span class="dot carrier"></span>Carrier ${pct(dc.carrier_mins)}%</div>`;
-                            html += `<div class="delay-legend-item"><span class="dot weather"></span>Weather ${pct(dc.weather_mins)}%</div>`;
-                            html += `<div class="delay-legend-item"><span class="dot nas"></span>NAS ${pct(dc.nas_mins)}%</div>`;
-                            if (pct(dc.security_mins) > 0) html += `<div class="delay-legend-item"><span class="dot security"></span>Security ${pct(dc.security_mins)}%</div>`;
-                            html += `<div class="delay-legend-item"><span class="dot late"></span>Late Aircraft ${pct(dc.late_aircraft_mins)}%</div>`;
-                            html += '</div></div>';
-                        }
-                    }
-                } else {
-                    html += '<div class="section-header"><i class="fas fa-stopwatch"></i> On-Time Performance</div>';
-                    html += '<div class="no-data">No on-time data available for this carrier on this route</div>';
-                }
-
-                // ── 5. Traffic ────────────────────────────────────────────────
-                if (c.passengers > 0 || c.freight_lbs > 0) {
-                    html += '<div class="section-header"><i class="fas fa-chart-bar"></i> Traffic</div>';
+                // Row 3: Passengers, Total Seats, Load Factor %
+                if (hasOps || c.passengers > 0) {
                     html += '<div class="stat-grid">';
                     html += `<div class="stat-box"><div class="icon"><i class="fas fa-users"></i></div><div class="value">${formatNum(c.passengers)}</div><div class="label">Passengers</div></div>`;
+                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-chair"></i></div><div class="value">${formatNum(c.seats)}</div><div class="label">Total Seats</div></div>`;
+                    html += `<div class="stat-box green"><div class="icon"><i class="fas fa-percentage"></i></div><div class="value">${c.load_factor ?? '—'}%</div><div class="label">Load Factor</div></div>`;
+                    html += '</div>';
+                }
+                // Row 4: Freight lbs, Mail lbs, Cargo per Flight
+                if (c.freight_lbs > 0 || c.mail_lbs > 0) {
+                    const cargoPerFlight = c.departures_performed > 0 ? Math.round((c.freight_lbs + c.mail_lbs) / c.departures_performed) : 0;
+                    html += '<div class="stat-grid">';
                     html += `<div class="stat-box orange"><div class="icon"><i class="fas fa-box"></i></div><div class="value">${formatNum(c.freight_lbs)}</div><div class="label">Freight lbs</div></div>`;
                     html += `<div class="stat-box purple"><div class="icon"><i class="fas fa-envelope"></i></div><div class="value">${formatNum(c.mail_lbs)}</div><div class="label">Mail lbs</div></div>`;
+                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-weight-hanging"></i></div><div class="value">${formatNum(cargoPerFlight)}</div><div class="label">lbs/Flight</div></div>`;
                     html += '</div>';
+                }
+                // Delay cause bar
+                if (hasOntime && c.delay_causes) {
+                    const dc = c.delay_causes;
+                    const total = dc.carrier_mins + dc.weather_mins + dc.nas_mins + dc.security_mins + dc.late_aircraft_mins;
+                    if (total > 0) {
+                        const pct = (v) => (v / total * 100).toFixed(0);
+                        html += '<div class="delay-bar">';
+                        html += `<div class="delay-bar-label"><span>Delay Causes</span><span>${formatNum(total)} total mins</span></div>`;
+                        html += '<div class="delay-bar-track">';
+                        if (pct(dc.carrier_mins) > 0)       html += `<div class="delay-bar-segment carrier" style="width:${pct(dc.carrier_mins)}%"></div>`;
+                        if (pct(dc.weather_mins) > 0)       html += `<div class="delay-bar-segment weather" style="width:${pct(dc.weather_mins)}%"></div>`;
+                        if (pct(dc.nas_mins) > 0)           html += `<div class="delay-bar-segment nas" style="width:${pct(dc.nas_mins)}%"></div>`;
+                        if (pct(dc.security_mins) > 0)      html += `<div class="delay-bar-segment security" style="width:${pct(dc.security_mins)}%"></div>`;
+                        if (pct(dc.late_aircraft_mins) > 0) html += `<div class="delay-bar-segment late" style="width:${pct(dc.late_aircraft_mins)}%"></div>`;
+                        html += '</div><div class="delay-legend">';
+                        html += `<div class="delay-legend-item"><span class="dot carrier"></span>Carrier ${pct(dc.carrier_mins)}%</div>`;
+                        html += `<div class="delay-legend-item"><span class="dot weather"></span>Weather ${pct(dc.weather_mins)}%</div>`;
+                        html += `<div class="delay-legend-item"><span class="dot nas"></span>NAS ${pct(dc.nas_mins)}%</div>`;
+                        if (pct(dc.security_mins) > 0) html += `<div class="delay-legend-item"><span class="dot security"></span>Security ${pct(dc.security_mins)}%</div>`;
+                        html += `<div class="delay-legend-item"><span class="dot late"></span>Late Aircraft ${pct(dc.late_aircraft_mins)}%</div>`;
+                        html += '</div></div>';
+                    }
                 }
 
                 // ── 6. Aircraft Types ─────────────────────────────────────────
@@ -889,6 +882,7 @@
                         }
                         html += `</div>`;
                     }
+                    html += `<div class="bts-note"><i class="fas fa-info-circle"></i> Based on historical BTS data. Actual schedules and fares may vary.</div>`;
                 }
 
                 const panel = document.getElementById('info-panel');
