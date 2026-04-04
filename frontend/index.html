@@ -803,13 +803,11 @@
                     html += `<div class="stat-box green"><div class="icon"><i class="fas fa-percentage"></i></div><div class="value">${c.load_factor ?? '—'}%</div><div class="label">Load Factor</div></div>`;
                     html += '</div>';
                 }
-                // Row 4: Freight lbs, Mail lbs, Cargo per Flight
+                // Row 4: Freight lbs, Mail lbs
                 if (c.freight_lbs > 0 || c.mail_lbs > 0) {
-                    const cargoPerFlight = c.departures_performed > 0 ? Math.round((c.freight_lbs + c.mail_lbs) / c.departures_performed) : 0;
-                    html += '<div class="stat-grid">';
+                    html += '<div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">';
                     html += `<div class="stat-box orange"><div class="icon"><i class="fas fa-box"></i></div><div class="value">${formatNum(c.freight_lbs)}</div><div class="label">Freight lbs</div></div>`;
                     html += `<div class="stat-box purple"><div class="icon"><i class="fas fa-envelope"></i></div><div class="value">${formatNum(c.mail_lbs)}</div><div class="label">Mail lbs</div></div>`;
-                    html += `<div class="stat-box"><div class="icon"><i class="fas fa-weight-hanging"></i></div><div class="value">${formatNum(cargoPerFlight)}</div><div class="label">lbs/Flight</div></div>`;
                     html += '</div>';
                 }
                 // Delay cause bar
