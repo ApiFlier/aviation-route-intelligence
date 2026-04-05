@@ -79,16 +79,21 @@ def get_airport(iata):
     if not airport:
         return jsonify({'error': 'Airport not found'}), 404
     
-    # Get route statistics
+    # Get route statistics — outbound only (origin = iata) so counts match
+    # the route_count/total_passengers/carrier_count stored in the airports table.
+    # Passengers are aggregated at the route level (before joining carriers) to
+    # avoid multiplying by carrier count.
     stats = db.execute_one("""
-        SELECT 
-            COUNT(*) as route_count,
-            SUM(r.passengers) as total_passengers,
-            SUM(r.freight) as total_freight,
-            COUNT(DISTINCT rc.carrier_code) as carrier_count
+        SELECT
+            COUNT(*)                      as route_count,
+            SUM(r.passengers)             as total_passengers,
+            SUM(r.freight)                as total_freight,
+            (SELECT COUNT(DISTINCT rc.carrier_code)
+             FROM route_carriers rc
+             JOIN routes r2 ON rc.route_id = r2.id
+             WHERE r2.origin = %s)        as carrier_count
         FROM routes r
-        JOIN route_carriers rc ON r.id = rc.route_id
-        WHERE r.origin = %s OR r.dest = %s
+        WHERE r.origin = %s
     """, (iata, iata))
     
     return jsonify({

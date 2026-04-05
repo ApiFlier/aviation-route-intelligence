@@ -219,6 +219,13 @@
         .filter-btn:hover { border-color: rgba(255,255,255,0.25); color: #ccc; }
         .filter-btn.active { background: rgba(114,9,183,0.25); border-color: #7209b7; color: #fff; }
         .results-count { margin-left: auto; font-size: 0.78rem; color: #555; }
+        .controls-bar input[type="text"] {
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+            color: #fff; padding: 6px 12px; border-radius: 6px;
+            font-size: 0.82rem; width: 160px; outline: none;
+        }
+        .controls-bar input[type="text"]:focus { border-color: #7209b7; }
+        .controls-bar input[type="text"]::placeholder { color: #555; }
 
         .stat-list { display: flex; flex-direction: column; gap: 10px; }
         .stat-row {
@@ -264,6 +271,11 @@
 
         <div id="grid-controls" style="display:none">
             <div class="controls-bar">
+                <div class="control-group">
+                    <label>Search</label>
+                    <input type="text" id="search-input" placeholder="Airline name..."
+                           oninput="applyControls()" autocomplete="off">
+                </div>
                 <div class="control-group">
                     <label>Sort by</label>
                     <select id="sort-select" onchange="applyControls()">
@@ -553,7 +565,9 @@ function renderWorkforce(data) {
 
     // Year-over-year trend
     const sorted = [...emp].sort((a, b) => a.year - b.year);
-    const trendHtml = sorted.length > 1 ? buildTrendSvg(sorted.map(e => e.emp_total)) : '';
+    const trendHtml = sorted.length > 1
+        ? buildTrendSvg(sorted.map(e => e.emp_total), sorted.map(e => e.year))
+        : '';
 
     el.innerHTML = `
         <div class="charts-row">
@@ -573,13 +587,6 @@ function renderWorkforce(data) {
             <div class="chart-box">
                 <h4>Total Headcount Trend</h4>
                 ${trendHtml || '<div style="color:#888;font-size:.85rem">Insufficient data for trend</div>'}
-                <div class="stat-list" style="margin-top:14px">
-                    ${sorted.map(e => `
-                        <div class="stat-row">
-                            <div class="stat-name">${e.year}</div>
-                            <div class="stat-val">${fmtNum(e.emp_total)}</div>
-                        </div>`).join('')}
-                </div>
             </div>
         </div>`;
 }
@@ -931,22 +938,63 @@ function buildDelayBars(ot) {
     </div>`;
 }
 
-// ── Tiny inline SVG line chart ────────────────────────────────────────
-function buildTrendSvg(values) {
+// ── Inline SVG line chart with axes ──────────────────────────────────
+function buildTrendSvg(values, years) {
     if (values.length < 2) return '';
-    const w = 300, h = 90, pad = 10;
+    const W = 320, H = 100;
+    const lPad = 45, rPad = 10, tPad = 8, bPad = 20;
+    const plotW = W - lPad - rPad;
+    const plotH = H - tPad - bPad;
+
     const min = Math.min(...values);
     const max = Math.max(...values);
-    const range = max - min || 1;
-    const pts = values.map((v, i) => {
-        const x = pad + (i / (values.length - 1)) * (w - pad * 2);
-        const y = h - pad - ((v - min) / range) * (h - pad * 2);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
+    const flat = min === max;
+    const range = flat ? 1 : max - min;
+
+    const xOf = i => lPad + (i / (values.length - 1)) * plotW;
+    const yOf = v => flat
+        ? tPad + plotH / 2
+        : tPad + plotH - ((v - min) / range) * plotH;
+
+    const pts = values.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`);
+
+    function fmtLabel(n) {
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (n >= 1e3) return Math.round(n / 1e3) + 'K';
+        return n;
+    }
+
+    const yTop    = tPad;
+    const yBottom = tPad + plotH;
+
+    const gridLines = flat ? `
+        <line x1="${lPad}" y1="${yOf(min)}" x2="${W - rPad}" y2="${yOf(min)}"
+              stroke="rgba(255,255,255,0.08)" stroke-width="1"/>` : `
+        <line x1="${lPad}" y1="${yTop}"    x2="${W - rPad}" y2="${yTop}"
+              stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+        <line x1="${lPad}" y1="${yBottom}" x2="${W - rPad}" y2="${yBottom}"
+              stroke="rgba(255,255,255,0.08)" stroke-width="1"/>`;
+
+    const yLabels = flat ? `
+        <text x="${lPad - 5}" y="${yOf(min) + 4}" text-anchor="end"
+              font-size="9" fill="#666">${fmtLabel(min)}</text>` : `
+        <text x="${lPad - 5}" y="${yTop + 4}" text-anchor="end"
+              font-size="9" fill="#666">${fmtLabel(max)}</text>
+        <text x="${lPad - 5}" y="${yBottom + 4}" text-anchor="end"
+              font-size="9" fill="#666">${fmtLabel(min)}</text>`;
+
+    const xLabels = years ? years.map((yr, i) =>
+        `<text x="${xOf(i).toFixed(1)}" y="${H - 4}" text-anchor="middle"
+               font-size="9" fill="#666">${yr}</text>`
+    ).join('') : '';
+
     return `<div class="trend-chart">
-        <svg viewBox="0 0 ${w} ${h}" class="trend-svg" preserveAspectRatio="none">
+        <svg viewBox="0 0 ${W} ${H}" class="trend-svg">
+            ${gridLines}
+            ${yLabels}
+            ${xLabels}
             <polyline points="${pts.join(' ')}"
-                fill="none" stroke="#a855f7" stroke-width="2.5"
+                fill="none" stroke="#a855f7" stroke-width="2"
                 stroke-linejoin="round" stroke-linecap="round"/>
             ${pts.map((pt, i) => {
                 const [x, y] = pt.split(',');
@@ -959,7 +1007,15 @@ function buildTrendSvg(values) {
 // ── Sort + filter ─────────────────────────────────────────────────────
 function applyControls() {
     const sortVal = document.getElementById('sort-select').value;
+    const searchVal = document.getElementById('search-input').value.toLowerCase().trim();
     let list = allAirlines.slice();
+
+    if (searchVal) {
+        list = list.filter(a =>
+            (a.name || '').toLowerCase().includes(searchVal) ||
+            (a.code || '').toLowerCase().includes(searchVal)
+        );
+    }
 
     if (activeTypeFilter !== 'all') {
         list = list.filter(a => (a.carrier_type || 'mainline') === activeTypeFilter);
