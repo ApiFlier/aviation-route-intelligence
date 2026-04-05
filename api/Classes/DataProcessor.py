@@ -819,27 +819,23 @@ class DataProcessor:
         route_carrier_count = 0
         route_counts = defaultdict(int)
 
-        # Minimum quarterly departures to qualify as scheduled service.
-        # Carriers below this threshold with no ontime tracking are ferry/charter
-        # repositioning flights, not routes passengers can actually book.
-        MIN_DEPARTURES = 12
+        # Minimum annual departures to qualify as scheduled service (~weekly).
+        # T-100 data covers annual totals, so 50 ≈ one flight per week.
+        # Ontime data alone is not sufficient — carriers must have real T-100 volume.
+        MIN_DEPARTURES = 50
 
         for origin, destinations in self.routes.items():
             for dest, data in destinations.items():
-                # Drop carriers that filed a handful of T-100 departures but
-                # are not tracked by BTS as scheduled service (no ontime data).
                 qualified = {
                     code: c for code, c in data['carriers'].items()
-                    if c['departures_performed'] >= MIN_DEPARTURES or c['ontime_flights'] > 0
+                    if c['departures_performed'] >= MIN_DEPARTURES
                 }
                 if not qualified:
                     continue
 
-                # Re-check route-level totals using only qualified carriers
+                # Route-level passenger/freight check against qualified carriers only
                 if data['passengers'] == 0 and data['freight'] == 0:
-                    has_ontime = any(c['ontime_flights'] > 0 for c in qualified.values())
-                    if not has_ontime:
-                        continue
+                    continue
 
                 carrier_count = len(qualified)
                 
