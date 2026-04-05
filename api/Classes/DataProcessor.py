@@ -20,6 +20,32 @@ from typing import Dict, Any, List
 from .Database import get_db
 
 
+REGIONAL_CARRIERS = {
+    'MQ': {'feeds_to': 'AA',         'brand': 'American Eagle'},
+    'OH': {'feeds_to': 'AA',         'brand': 'American Eagle'},
+    'PT': {'feeds_to': 'AA',         'brand': 'American Eagle'},
+    'ZW': {'feeds_to': 'AA',         'brand': 'American Eagle'},
+    'YX': {'feeds_to': 'AA,DL,UA',   'brand': 'Republic Airways'},
+    'OO': {'feeds_to': 'DL,UA,AA,AS','brand': 'SkyWest Airlines'},
+    '9E': {'feeds_to': 'DL',         'brand': 'Delta Connection'},
+    'QX': {'feeds_to': 'AS',         'brand': 'Alaska Horizon'},
+    'YV': {'feeds_to': 'UA',         'brand': 'United Express'},
+    'C5': {'feeds_to': 'UA',         'brand': 'United Express'},
+    'G7': {'feeds_to': 'UA',         'brand': 'United Express'},
+    '3M': {'feeds_to': 'UA',         'brand': 'United Express'},
+}
+
+CARGO_CARRIERS = {
+    'FX', '5X', 'PO', 'ABX', '5Y', 'KAQ', 'KLQ',
+    'L2', 'M6', 'GFQ', '8C', 'U7', 'NC', 'KD', 'WI',
+}
+
+CHARTER_CARRIERS = {
+    'X9', 'N8', 'WL', 'GCA', '09Q', '27Q', '1EQ',
+    '2PQ', '3EQ', 'PFQ',
+}
+
+
 class DataProcessor:
     def __init__(self, data_dir: str = 'Data'):
         self.data_dir = data_dir
@@ -215,14 +241,16 @@ class DataProcessor:
         return len(carriers)
     
     def process_market_data(self) -> None:
-        """Process T-100 Market data for passengers, freight, mail."""
+        """Process T-100 Market data for passengers, freight, mail.
+        Filters to CLASS='F' (scheduled service) to exclude charter operators
+        and private-aviation companies that file CLASS='L' with 1-10 passengers."""
         print("Processing T-100 Market data...")
         files = self._get_files('market')
-        
+
         if not files:
             print(f"  ERROR: No T-100 Market files found")
             return
-        
+
         print(f"  Found {len(files)} market files")
         row_count = 0
         for filepath in files:
@@ -230,6 +258,13 @@ class DataProcessor:
             with open(filepath, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
+                    # CLASS='F' is scheduled service (all major/regional/ULCC airlines).
+                    # CLASS='L' includes charter and private-jet operators alongside a few
+                    # small scheduled carriers — excluding it removes the noise without
+                    # meaningfully affecting route counts for the carriers we display.
+                    if row.get('CLASS', '') != 'F':
+                        continue
+
                     origin = row.get('ORIGIN', '').strip()
                     dest = row.get('DEST', '').strip()
                     carrier = row.get('UNIQUE_CARRIER', '').strip()
@@ -267,14 +302,16 @@ class DataProcessor:
         print(f"  Processed {row_count:,} total market rows")
     
     def process_segment_data(self) -> None:
-        """Process T-100 Segment data for flights, seats, air time, aircraft."""
+        """Process T-100 Segment data for flights, seats, air time, aircraft.
+        Applies the same CLASS='F' filter as process_market_data so that charter
+        and private-jet operators don't create route_carriers rows."""
         print("Processing T-100 Segment data...")
         files = self._get_files('segment')
-        
+
         if not files:
             print(f"  WARNING: No T-100 Segment files found, skipping")
             return
-        
+
         print(f"  Found {len(files)} segment files")
         row_count = 0
         for filepath in files:
@@ -282,6 +319,9 @@ class DataProcessor:
             with open(filepath, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
+                    if row.get('CLASS', '') != 'F':
+                        continue
+
                     origin = row.get('ORIGIN', '').strip()
                     dest = row.get('DEST', '').strip()
                     carrier = row.get('UNIQUE_CARRIER', '').strip()
@@ -771,22 +811,37 @@ class DataProcessor:
     def save_to_database(self) -> None:
         """Save processed route data to MySQL."""
         print("Saving routes to database...")
-        
+
         # Resolve marketing carrier names first
         self._resolve_marketing_names()
-        
+
         route_count = 0
         route_carrier_count = 0
         route_counts = defaultdict(int)
-        
+
+        # Minimum quarterly departures to qualify as scheduled service.
+        # Carriers below this threshold with no ontime tracking are ferry/charter
+        # repositioning flights, not routes passengers can actually book.
+        MIN_DEPARTURES = 12
+
         for origin, destinations in self.routes.items():
             for dest, data in destinations.items():
+                # Drop carriers that filed a handful of T-100 departures but
+                # are not tracked by BTS as scheduled service (no ontime data).
+                qualified = {
+                    code: c for code, c in data['carriers'].items()
+                    if c['departures_performed'] >= MIN_DEPARTURES or c['ontime_flights'] > 0
+                }
+                if not qualified:
+                    continue
+
+                # Re-check route-level totals using only qualified carriers
                 if data['passengers'] == 0 and data['freight'] == 0:
-                    has_ontime = any(c.get('ontime_flights', 0) > 0 for c in data['carriers'].values())
+                    has_ontime = any(c['ontime_flights'] > 0 for c in qualified.values())
                     if not has_ontime:
                         continue
-                
-                carrier_count = len(data['carriers'])
+
+                carrier_count = len(qualified)
                 
                 query = """
                     INSERT INTO routes (origin, dest, distance, passengers, freight, mail, carrier_count)
@@ -804,7 +859,7 @@ class DataProcessor:
                     "SELECT id FROM routes WHERE origin=%s AND dest=%s", (origin, dest)
                 )['id']
                 
-                for carrier_code, c in data['carriers'].items():
+                for carrier_code, c in qualified.items():
                     aircraft_json = json.dumps(c['aircraft_types'])
                     query = """
                         INSERT INTO route_carriers 
@@ -899,6 +954,360 @@ class DataProcessor:
         
         print(f"  Saved {route_count:,} routes with {route_carrier_count:,} carrier records")
     
+    def process_employee_data(self) -> None:
+        """Load annual employee counts by role from BTS Form 41 Schedule P-10.
+        Filters to ENTITY='D' (domestic) to avoid double-counting regional/international."""
+        pattern = os.path.join(self.data_dir, 'Air Carrier Financial Reports - Schedule P-10 - *.csv')
+        files = sorted(glob.glob(pattern))
+        if not files:
+            print("  No P-10 employee files found, skipping")
+            return
+        print(f"Processing {len(files)} P-10 employee file(s)...")
+
+        rows = []
+        for filepath in files:
+            with open(filepath, newline='', encoding='utf-8-sig') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('ENTITY', '').strip() != 'D':
+                        continue
+                    other = (
+                        self._safe_int(row.get('TRAINEES_INTRUCTOR', 0)) +
+                        self._safe_int(row.get('STATISTICAL', 0)) +
+                        self._safe_int(row.get('TRAFFIC_SOLICITERS', 0)) +
+                        self._safe_int(row.get('OTHER', 0)) +
+                        self._safe_int(row.get('TRANSPORT_RELATED', 0))
+                    )
+                    rows.append((
+                        row['UNIQUE_CARRIER'].strip(),
+                        self._safe_int(row.get('YEAR', 0)),
+                        self._safe_int(row.get('TOTAL', 0)),
+                        self._safe_int(row.get('PILOTS_COPILOTS', 0)),
+                        self._safe_int(row.get('OTHER_FLT_PERS', 0)),
+                        self._safe_int(row.get('MAINTENANCE', 0)),
+                        self._safe_int(row.get('PASSENGER_HANDLING', 0)),
+                        self._safe_int(row.get('CARGO_HANDLING', 0)),
+                        self._safe_int(row.get('GENERAL_MANAGE', 0)),
+                        self._safe_int(row.get('PASS_GEN_SVC_ADMIN', 0)),
+                        other,
+                    ))
+
+        if rows:
+            self.db.execute_many("""
+                INSERT INTO carrier_employees
+                    (carrier_code, year, emp_total, pilots, other_flight, maintenance,
+                     passenger_handling, cargo_handling, general_management, pass_gen_svc, other_employees)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    emp_total=VALUES(emp_total), pilots=VALUES(pilots),
+                    other_flight=VALUES(other_flight), maintenance=VALUES(maintenance),
+                    passenger_handling=VALUES(passenger_handling), cargo_handling=VALUES(cargo_handling),
+                    general_management=VALUES(general_management), pass_gen_svc=VALUES(pass_gen_svc),
+                    other_employees=VALUES(other_employees)
+            """, rows)
+            print(f"  Loaded {len(rows):,} carrier-year employee records")
+
+    def process_financial_data(self) -> None:
+        """Load quarterly salary/expense (P-6) and balance sheet (B-1) data.
+        Filters to REGION='D' (domestic) to avoid double-counting.
+        All monetary values stored as-is (thousands USD)."""
+
+        # ── P-6: Salary and operating expense ────────────────────────────────
+        pattern = os.path.join(self.data_dir, 'Air Carrier Financial Reports - Schedule P-6 - *.csv')
+        files = sorted(glob.glob(pattern))
+        print(f"Processing {len(files)} P-6 salary file(s)...")
+        p6_rows = []
+        for filepath in files:
+            with open(filepath, newline='', encoding='utf-8-sig') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('REGION', '').strip() != 'D':
+                        continue
+                    sal = self._safe_float(row.get('SALARIES', 0))
+                    ben = self._safe_float(row.get('BENEFITS', 0))
+                    p6_rows.append((
+                        row['UNIQUE_CARRIER'].strip(),
+                        self._safe_int(row.get('YEAR', 0)),
+                        self._safe_int(row.get('QUARTER', 0)),
+                        sal,
+                        self._safe_float(row.get('SALARIES_FLIGHT', 0)),
+                        self._safe_float(row.get('SALARIES_MAINT', 0)),
+                        self._safe_float(row.get('SALARIES_TRAFFIC', 0)),
+                        self._safe_float(row.get('SALARIES_MGT', 0)),
+                        self._safe_float(row.get('SALARIES_OTHER', 0)),
+                        ben,
+                        self._safe_float(row.get('BENEFITS_PERSONNEL', 0)),
+                        self._safe_float(row.get('BENEFITS_PENSIONS', 0)),
+                        sal + ben,
+                        self._safe_float(row.get('OP_EXPENSE', 0)),
+                        self._safe_float(row.get('AIRCRAFT_FUEL', 0)),
+                    ))
+        if p6_rows:
+            self.db.execute_many("""
+                INSERT INTO carrier_financials
+                    (carrier_code, year, quarter,
+                     salaries_total, salaries_flight, salaries_maintenance,
+                     salaries_traffic, salaries_management, salaries_other,
+                     benefits_total, benefits_personnel, benefits_pensions,
+                     total_compensation, operating_expense, aircraft_fuel)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                    salaries_total=VALUES(salaries_total),
+                    salaries_flight=VALUES(salaries_flight),
+                    salaries_maintenance=VALUES(salaries_maintenance),
+                    salaries_traffic=VALUES(salaries_traffic),
+                    salaries_management=VALUES(salaries_management),
+                    salaries_other=VALUES(salaries_other),
+                    benefits_total=VALUES(benefits_total),
+                    benefits_personnel=VALUES(benefits_personnel),
+                    benefits_pensions=VALUES(benefits_pensions),
+                    total_compensation=VALUES(total_compensation),
+                    operating_expense=VALUES(operating_expense),
+                    aircraft_fuel=VALUES(aircraft_fuel)
+            """, p6_rows)
+            print(f"  Loaded {len(p6_rows):,} carrier-quarter P-6 records")
+
+        # ── B-1: Balance sheet ────────────────────────────────────────────────
+        pattern = os.path.join(self.data_dir, 'Air Carrier Financial Reports - Schedule B-1 - *.csv')
+        files = sorted(glob.glob(pattern))
+        print(f"Processing {len(files)} B-1 balance sheet file(s)...")
+        b1_rows = []
+        for filepath in files:
+            with open(filepath, newline='', encoding='utf-8-sig') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('REGION', '').strip() != 'D':
+                        continue
+                    b1_rows.append((
+                        self._safe_float(row.get('CASH', 0)),
+                        self._safe_float(row.get('ASSETS', 0)),
+                        self._safe_float(row.get('LONG_TERM_DEBT', 0)),
+                        self._safe_float(row.get('CURR_LIABILITIES', 0)),
+                        self._safe_float(row.get('SH_HLD_EQUIT_NET', 0)),
+                        row['UNIQUE_CARRIER'].strip(),
+                        self._safe_int(row.get('YEAR', 0)),
+                        self._safe_int(row.get('QUARTER', 0)),
+                    ))
+        if b1_rows:
+            self.db.execute_many("""
+                INSERT INTO carrier_financials
+                    (carrier_code, year, quarter,
+                     cash_position, total_assets, long_term_debt,
+                     current_liabilities, shareholders_equity)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                    cash_position=VALUES(cash_position),
+                    total_assets=VALUES(total_assets),
+                    long_term_debt=VALUES(long_term_debt),
+                    current_liabilities=VALUES(current_liabilities),
+                    shareholders_equity=VALUES(shareholders_equity)
+            """, [(r[5], r[6], r[7], r[0], r[1], r[2], r[3], r[4]) for r in b1_rows])
+            print(f"  Loaded {len(b1_rows):,} carrier-quarter B-1 records")
+
+        # ── P-1-1 / P-1-2: Income statement ──────────────────────────────────
+        # P-1-1: smaller carriers (OP_REVENUE, OP_PROFIT)
+        # P-1-2: large carriers  (OP_REVENUES, OP_PROFIT_LOSS)
+        income_rows = []
+        for sched, rev_col, profit_col in [
+            ('P-1-1', 'OP_REVENUE',  'OP_PROFIT'),
+            ('P-1-2', 'OP_REVENUES', 'OP_PROFIT_LOSS'),
+        ]:
+            pattern = os.path.join(self.data_dir, f'Air Carrier Financial Reports - Schedule {sched} - *.csv')
+            files = sorted(glob.glob(pattern))
+            print(f"Processing {len(files)} {sched} income statement file(s)...")
+            for filepath in files:
+                with open(filepath, newline='', encoding='utf-8-sig') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if row.get('REGION', '').strip() != 'D':
+                            continue
+                        income_rows.append((
+                            row['UNIQUE_CARRIER'].strip(),
+                            self._safe_int(row.get('YEAR', 0)),
+                            self._safe_int(row.get('QUARTER', 0)),
+                            self._safe_float(row.get(rev_col, 0)),
+                            self._safe_float(row.get(profit_col, 0)),
+                            self._safe_float(row.get('NET_INCOME', 0)),
+                        ))
+        if income_rows:
+            self.db.execute_many("""
+                INSERT INTO carrier_financials
+                    (carrier_code, year, quarter,
+                     op_revenue, op_profit, net_income)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                    op_revenue=VALUES(op_revenue),
+                    op_profit=VALUES(op_profit),
+                    net_income=VALUES(net_income)
+            """, income_rows)
+            print(f"  Loaded {len(income_rows):,} carrier-quarter income statement records")
+
+    def process_hub_data(self) -> None:
+        """Aggregate top-8 hub airports per carrier from Q2-2025 passenger departures.
+        Filters to YEAR=2025, MONTH in (4,5,6), PASSENGERS > 0, CLASS='F' to capture only
+        current scheduled passenger operations, excluding cargo and charter flights."""
+        pattern = os.path.join(self.data_dir, 'Air Carrier Statistics - All Carriers - T-100 Segment - *.csv')
+        files = sorted(glob.glob(pattern))
+        print(f"Processing {len(files)} T-100 Segment file(s) for hub data (Q2-2025 pax only)...")
+
+        # Key is carrier only — Q2-2025 snapshot, no year dimension needed
+        deps: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        for filepath in files:
+            with open(filepath, newline='', encoding='utf-8-sig') as f:
+                for row in csv.DictReader(f):
+                    if row.get('CLASS', '') != 'F':
+                        continue
+                    if self._safe_int(row.get('YEAR', 0)) != 2025:
+                        continue
+                    if self._safe_int(row.get('MONTH', 0)) not in (4, 5, 6):
+                        continue
+                    if self._safe_float(row.get('PASSENGERS', 0)) <= 0:
+                        continue
+                    carrier = row.get('UNIQUE_CARRIER', '').strip()
+                    origin  = row.get('ORIGIN', '').strip()
+                    d       = self._safe_int(row.get('DEPARTURES_PERFORMED', 0))
+                    if carrier and origin and d > 0:
+                        deps[carrier][origin] += d
+
+        # Store as year=2025 (the Q2 snapshot year).
+        # Only include airports with >= 12 departures in the quarter (roughly weekly service).
+        rows = []
+        for carrier, airports in deps.items():
+            qualified = {apt: d for apt, d in airports.items() if d >= 12}
+            total = sum(qualified.values())
+            if not total:
+                continue
+            for rank, (apt, d) in enumerate(
+                sorted(qualified.items(), key=lambda x: -x[1])[:8], 1
+            ):
+                rows.append((carrier, 2025, rank, apt, d, round(d / total * 100, 1)))
+
+        if rows:
+            self.db.execute_many("""
+                INSERT INTO carrier_hubs
+                    (carrier_code, year, hub_rank, airport_code, departures, pct_of_total)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                    airport_code=VALUES(airport_code),
+                    departures=VALUES(departures),
+                    pct_of_total=VALUES(pct_of_total)
+            """, rows)
+            print(f"  Loaded Q2-2025 hub data for {len(deps):,} carriers")
+
+    def process_network_data(self) -> None:
+        """Count unique passenger origin-dest pairs per carrier from Q2-2025 T-100 Market.
+        Filters to YEAR=2025, MONTH in (4,5,6), PASSENGERS > 0, CLASS='F' to show only
+        current scheduled passenger routes, and requires >= 12 quarterly departures per
+        route to exclude repositioning and charter flights."""
+        pattern = os.path.join(self.data_dir, 'Air Carrier Statistics - All Carriers - T-100 Market - *.csv')
+        files = sorted(glob.glob(pattern))
+        print(f"Processing {len(files)} T-100 Market file(s) for network data (Q2-2025 pax only)...")
+
+        # Track departures per (carrier, origin, dest) to apply frequency filter
+        pair_deps: Dict[Any, int] = defaultdict(int)
+        pair_meta: Dict[Any, dict] = {}
+        for filepath in files:
+            with open(filepath, newline='', encoding='utf-8-sig') as f:
+                for row in csv.DictReader(f):
+                    if row.get('CLASS', '') != 'F':
+                        continue
+                    if self._safe_int(row.get('YEAR', 0)) != 2025:
+                        continue
+                    if self._safe_int(row.get('MONTH', 0)) not in (4, 5, 6):
+                        continue
+                    if self._safe_float(row.get('PASSENGERS', 0)) <= 0:
+                        continue
+                    carrier   = row.get('UNIQUE_CARRIER', '').strip()
+                    origin    = row.get('ORIGIN', '').strip()
+                    dest      = row.get('DEST', '').strip()
+                    o_country = row.get('ORIGIN_COUNTRY', '').strip()
+                    d_country = row.get('DEST_COUNTRY', '').strip()
+                    if not (carrier and origin and dest):
+                        continue
+                    key = (carrier, origin, dest)
+                    pair_deps[key] += self._safe_int(row.get('DEPARTURES_PERFORMED', 0))
+                    if key not in pair_meta:
+                        pair_meta[key] = {'o_country': o_country, 'd_country': d_country}
+
+        # Only count routes with >= 12 quarterly departures (roughly weekly service)
+        net: Dict[str, Any] = defaultdict(lambda: {'dom': set(), 'intl': set()})
+        for (carrier, origin, dest), deps in pair_deps.items():
+            if deps < 12:
+                continue
+            meta = pair_meta[(carrier, origin, dest)]
+            pair = (origin, dest)
+            bucket = net[carrier]
+            if meta['o_country'] == 'US' and meta['d_country'] == 'US':
+                bucket['dom'].add(pair)
+            else:
+                bucket['intl'].add(pair)
+
+        rows = []
+        for carrier, counts in net.items():
+            dom  = len(counts['dom'])
+            intl = len(counts['intl'])
+            rows.append((carrier, 2025, dom, intl, dom + intl))
+
+        if rows:
+            self.db.execute_many("""
+                INSERT INTO carrier_network
+                    (carrier_code, year, domestic_routes, intl_routes, total_routes)
+                VALUES (%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                    domestic_routes=VALUES(domestic_routes),
+                    intl_routes=VALUES(intl_routes),
+                    total_routes=VALUES(total_routes)
+            """, rows)
+            print(f"  Loaded Q2-2025 network data for {len(rows):,} carriers")
+
+    def process_fleet_data(self) -> None:
+        """Count active operated aircraft per carrier/year from B-43."""
+        pattern = os.path.join(self.data_dir, 'Air Carrier Financial Reports - Schedule B-43 - *.csv')
+        files = sorted(glob.glob(pattern))
+        print(f"Processing {len(files)} B-43 fleet file(s)...")
+
+        fleet: Dict[Any, int] = defaultdict(int)
+        for filepath in files:
+            with open(filepath, newline='', encoding='utf-8-sig') as f:
+                for row in csv.DictReader(f):
+                    if row.get('AIRCRAFT_STATUS', '').upper() != 'O':
+                        continue
+                    if row.get('OPERATING_STATUS', '').upper() != 'Y':
+                        continue
+                    carrier = row.get('UNIQUE_CARRIER', '').strip()
+                    year    = self._safe_int(row.get('YEAR', 0))
+                    if carrier and year:
+                        fleet[(carrier, year)] += 1
+
+        rows = [(c, y, n) for (c, y), n in fleet.items()]
+        if rows:
+            self.db.execute_many("""
+                INSERT INTO carrier_fleet (carrier_code, year, aircraft_count)
+                VALUES (%s,%s,%s)
+                ON DUPLICATE KEY UPDATE aircraft_count=VALUES(aircraft_count)
+            """, rows)
+            print(f"  Loaded fleet data for {len(rows):,} carrier-years")
+
+    def process_carrier_attributes(self) -> None:
+        """Load regional/cargo/charter carrier mappings (hardcoded)."""
+        rows = []
+        for code, info in REGIONAL_CARRIERS.items():
+            rows.append((code, 'regional', info['feeds_to'], info['brand']))
+        for code in CARGO_CARRIERS:
+            rows.append((code, 'cargo', None, None))
+        for code in CHARTER_CARRIERS:
+            rows.append((code, 'charter', None, None))
+        if rows:
+            self.db.execute_many("""
+                INSERT INTO carrier_attributes (carrier_code, carrier_type, feeds_to, brand)
+                VALUES (%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                    carrier_type=VALUES(carrier_type),
+                    feeds_to=VALUES(feeds_to),
+                    brand=VALUES(brand)
+            """, rows)
+            print(f"  Loaded {len(rows)} carrier attribute records")
+
     def build_fare_flags(self) -> None:
         """Set has_fares=True on airports that have outbound route_fares data."""
         print("Building airport fare flags...")
@@ -934,6 +1343,12 @@ class DataProcessor:
         self.save_to_database()
         self.build_fare_flags()
         self.process_schedules_data()
+        self.process_employee_data()
+        self.process_financial_data()
+        self.process_hub_data()
+        self.process_network_data()
+        self.process_fleet_data()
+        self.process_carrier_attributes()
         
         stats = self.db.execute("SELECT stat_key, stat_value FROM stats")
         print("\n" + "=" * 60)

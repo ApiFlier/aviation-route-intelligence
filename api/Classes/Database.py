@@ -128,7 +128,9 @@ class Database:
     
     def truncate_tables(self):
         """Truncate all data tables (for reprocessing)."""
-        tables = ['route_carriers', 'routes', 'airports', 'carriers', 'aircraft', 'stats']
+        tables = ['route_carriers', 'routes', 'airports', 'carriers', 'aircraft', 'stats',
+                  'carrier_employees', 'carrier_financials',
+                  'carrier_hubs', 'carrier_network', 'carrier_attributes', 'carrier_fleet']
         with self.cursor() as cur:
             cur.execute("SET FOREIGN_KEY_CHECKS = 0")
             for table in tables:

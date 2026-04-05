@@ -142,6 +142,108 @@ CREATE TABLE IF NOT EXISTS route_schedules (
     INDEX idx_route (origin, dest)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Annual employee counts by role (from BTS Form 41 Schedule P-10)
+CREATE TABLE IF NOT EXISTS carrier_employees (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    carrier_code VARCHAR(10) NOT NULL,
+    year INT NOT NULL,
+    emp_total INT DEFAULT 0,           -- TOTAL headcount
+    pilots INT DEFAULT 0,              -- PILOTS_COPILOTS
+    other_flight INT DEFAULT 0,        -- OTHER_FLT_PERS (flight engineers, etc.)
+    maintenance INT DEFAULT 0,         -- MAINTENANCE
+    passenger_handling INT DEFAULT 0,  -- PASSENGER_HANDLING
+    cargo_handling INT DEFAULT 0,      -- CARGO_HANDLING
+    general_management INT DEFAULT 0,  -- GENERAL_MANAGE
+    pass_gen_svc INT DEFAULT 0,        -- PASS_GEN_SVC_ADMIN (incl. flight attendants)
+    other_employees INT DEFAULT 0,     -- trainees, statistical, traffic solicitors, other
+    UNIQUE KEY uk_carrier_year (carrier_code, year),
+    INDEX idx_ce_carrier (carrier_code),
+    INDEX idx_ce_year (year)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Quarterly salary/expense and balance sheet data
+-- Salary/expense from BTS Form 41 Schedule P-6 (values in thousands USD)
+-- Balance sheet from BTS Form 41 Schedule B-1 (values in thousands USD)
+CREATE TABLE IF NOT EXISTS carrier_financials (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    carrier_code VARCHAR(10) NOT NULL,
+    year INT NOT NULL,
+    quarter TINYINT NOT NULL,
+    -- Salaries (thousands USD, from P-6)
+    salaries_total DECIMAL(15,2) DEFAULT NULL,
+    salaries_flight DECIMAL(15,2) DEFAULT NULL,
+    salaries_maintenance DECIMAL(15,2) DEFAULT NULL,
+    salaries_traffic DECIMAL(15,2) DEFAULT NULL,
+    salaries_management DECIMAL(15,2) DEFAULT NULL,
+    salaries_other DECIMAL(15,2) DEFAULT NULL,
+    -- Benefits (thousands USD, from P-6)
+    benefits_total DECIMAL(15,2) DEFAULT NULL,
+    benefits_personnel DECIMAL(15,2) DEFAULT NULL,
+    benefits_pensions DECIMAL(15,2) DEFAULT NULL,
+    -- Total compensation = salaries + benefits
+    total_compensation DECIMAL(15,2) DEFAULT NULL,
+    -- Operating expense (thousands USD, from P-6)
+    operating_expense DECIMAL(15,2) DEFAULT NULL,
+    aircraft_fuel DECIMAL(15,2) DEFAULT NULL,
+    -- Income statement (thousands USD, from P-1-1)
+    op_revenue DECIMAL(15,2) DEFAULT NULL,
+    op_profit DECIMAL(15,2) DEFAULT NULL,
+    net_income DECIMAL(15,2) DEFAULT NULL,
+    -- Balance sheet (thousands USD, from B-1)
+    cash_position DECIMAL(15,2) DEFAULT NULL,
+    total_assets DECIMAL(15,2) DEFAULT NULL,
+    long_term_debt DECIMAL(15,2) DEFAULT NULL,
+    current_liabilities DECIMAL(15,2) DEFAULT NULL,
+    shareholders_equity DECIMAL(15,2) DEFAULT NULL,
+    UNIQUE KEY uk_carrier_quarter (carrier_code, year, quarter),
+    INDEX idx_cf_carrier (carrier_code),
+    INDEX idx_cf_year (year)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Top hub airports per carrier/year (from T-100 Segment)
+CREATE TABLE IF NOT EXISTS carrier_hubs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    carrier_code VARCHAR(10) NOT NULL,
+    year INT NOT NULL,
+    hub_rank TINYINT NOT NULL,
+    airport_code VARCHAR(3) NOT NULL,
+    departures INT DEFAULT 0,
+    pct_of_total DECIMAL(5,1) DEFAULT NULL,
+    UNIQUE KEY uk_hub (carrier_code, year, hub_rank),
+    INDEX idx_hub_carrier (carrier_code),
+    INDEX idx_hub_year (year)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Route network summary per carrier/year (from T-100 Market)
+CREATE TABLE IF NOT EXISTS carrier_network (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    carrier_code VARCHAR(10) NOT NULL,
+    year INT NOT NULL,
+    domestic_routes INT DEFAULT 0,
+    intl_routes INT DEFAULT 0,
+    total_routes INT DEFAULT 0,
+    UNIQUE KEY uk_net (carrier_code, year),
+    INDEX idx_net_carrier (carrier_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Carrier type and regional relationship flags
+CREATE TABLE IF NOT EXISTS carrier_attributes (
+    carrier_code VARCHAR(10) PRIMARY KEY,
+    carrier_type VARCHAR(20) DEFAULT 'mainline',
+    feeds_to VARCHAR(50) DEFAULT NULL,
+    brand VARCHAR(100) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Annual active fleet count (from B-43)
+CREATE TABLE IF NOT EXISTS carrier_fleet (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    carrier_code VARCHAR(10) NOT NULL,
+    year INT NOT NULL,
+    aircraft_count INT DEFAULT 0,
+    UNIQUE KEY uk_fleet (carrier_code, year),
+    INDEX idx_fleet_carrier (carrier_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- DB1B fare data by route/carrier/quarter
 CREATE TABLE IF NOT EXISTS route_fares (
     id INT AUTO_INCREMENT PRIMARY KEY,
