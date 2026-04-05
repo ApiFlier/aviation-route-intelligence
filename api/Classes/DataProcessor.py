@@ -817,7 +817,6 @@ class DataProcessor:
 
         route_count = 0
         route_carrier_count = 0
-        route_counts = defaultdict(int)
 
         # Minimum annual departures to qualify as scheduled service (~weekly).
         # T-100 data covers annual totals, so 50 ≈ one flight per week.
@@ -926,18 +925,26 @@ class DataProcessor:
                     route_carrier_count += 1
                 
                 route_count += 1
-                route_counts[origin] += 1
-                route_counts[dest] += 1
-                
+
                 if route_count % 5000 == 0:
                     print(f"  Saved {route_count:,} routes...")
-        
-        print("Updating airport route counts...")
-        for iata, count in route_counts.items():
-            self.db.execute_write(
-                "UPDATE airports SET route_count = %s WHERE iata = %s",
-                (count, iata)
-            )
+
+        print("Updating airport stats from filtered routes...")
+        self.db.execute_write("""
+            UPDATE airports a SET
+                route_count = (
+                    SELECT COUNT(*) FROM routes WHERE origin = a.iata
+                ),
+                total_passengers = (
+                    SELECT COALESCE(SUM(passengers), 0) FROM routes WHERE origin = a.iata
+                ),
+                carrier_count = (
+                    SELECT COUNT(DISTINCT rc.carrier_code)
+                    FROM routes r
+                    JOIN route_carriers rc ON rc.route_id = r.id
+                    WHERE r.origin = a.iata
+                )
+        """)
         
         self.db.execute_write(
             "INSERT INTO stats (stat_key, stat_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE stat_value=VALUES(stat_value)",
@@ -945,7 +952,7 @@ class DataProcessor:
         )
         self.db.execute_write(
             "INSERT INTO stats (stat_key, stat_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE stat_value=VALUES(stat_value)",
-            ('total_airports', len(route_counts))
+            ('total_airports', self.db.execute_one("SELECT COUNT(*) as n FROM airports WHERE route_count > 0")['n'])
         )
         
         print(f"  Saved {route_count:,} routes with {route_carrier_count:,} carrier records")

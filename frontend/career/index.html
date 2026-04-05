@@ -194,7 +194,31 @@
         .bar-row-val { font-size: 0.75rem; color: #ccc; width: 60px; flex-shrink: 0; }
 
         .trend-chart { position: relative; height: 120px; }
-        .trend-svg { width: 100%; height: 100%; }
+        .trend-svg { display: block; width: 100%; height: 100%; }
+
+        /* ── Grid controls bar ────────────────────────────────────── */
+        .controls-bar {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px; padding: 14px 20px; margin-bottom: 22px;
+        }
+        .control-group { display: flex; align-items: center; gap: 10px; }
+        .control-group label { font-size: 0.78rem; color: #666; white-space: nowrap; }
+        .controls-bar select {
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+            color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 0.82rem;
+            cursor: pointer; outline: none;
+        }
+        .controls-bar select:focus { border-color: #7209b7; }
+        .filter-btns { display: flex; gap: 5px; }
+        .filter-btn {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            color: #888; padding: 5px 12px; border-radius: 20px; font-size: 0.78rem;
+            cursor: pointer; transition: all 0.15s; white-space: nowrap;
+        }
+        .filter-btn:hover { border-color: rgba(255,255,255,0.25); color: #ccc; }
+        .filter-btn.active { background: rgba(114,9,183,0.25); border-color: #7209b7; color: #fff; }
+        .results-count { margin-left: auto; font-size: 0.78rem; color: #555; }
 
         .stat-list { display: flex; flex-direction: column; gap: 10px; }
         .stat-row {
@@ -236,6 +260,40 @@
         <div class="intro">
             <h1>Which Airlines Are Thriving?</h1>
             <p>Compare airline financial health, workforce trends, and on-time performance to make informed career decisions.</p>
+        </div>
+
+        <div id="grid-controls" style="display:none">
+            <div class="controls-bar">
+                <div class="control-group">
+                    <label>Sort by</label>
+                    <select id="sort-select" onchange="applyControls()">
+                        <option value="score-desc">Health Score (high to low)</option>
+                        <option value="score-asc">Health Score (low to high)</option>
+                        <option value="emp-desc">Employee Count (high to low)</option>
+                        <option value="emp-asc">Employee Count (low to high)</option>
+                        <option value="name-asc">Name (A-Z)</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Carrier type</label>
+                    <div class="filter-btns" id="filter-type">
+                        <button class="filter-btn active" data-val="all">All</button>
+                        <button class="filter-btn" data-val="mainline">Mainline</button>
+                        <button class="filter-btn" data-val="regional">Regional</button>
+                        <button class="filter-btn" data-val="cargo">Cargo</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Health</label>
+                    <div class="filter-btns" id="filter-health">
+                        <button class="filter-btn active" data-val="all">All</button>
+                        <button class="filter-btn" data-val="healthy">Healthy (70+)</button>
+                        <button class="filter-btn" data-val="watch">Watch (45–69)</button>
+                        <button class="filter-btn" data-val="distressed">Distressed (&lt;45)</button>
+                    </div>
+                </div>
+                <div class="results-count" id="results-count"></div>
+            </div>
         </div>
 
         <div id="airlines-container">
@@ -291,6 +349,8 @@ const API = '/api';
 let allAirlines = [];
 let selectedCode = null;
 let detailCache = {};
+let activeTypeFilter = 'all';
+let activeHealthFilter = 'all';
 
 // ── Formatting helpers ────────────────────────────────────────────────
 function fmtNum(n, decimals = 0) {
@@ -416,8 +476,9 @@ async function openDetail(code, name) {
     document.getElementById('detail-title').textContent = name;
     document.getElementById('detail-code').textContent = code;
 
-    // Swap views: hide grid, show detail
+    // Swap views: hide grid + controls, show detail
     document.getElementById('airlines-container').style.display = 'none';
+    document.getElementById('grid-controls').style.display = 'none';
     const panel = document.getElementById('detail-panel');
     panel.classList.add('visible');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -447,6 +508,7 @@ async function openDetail(code, name) {
 function goBack() {
     document.getElementById('detail-panel').classList.remove('visible');
     document.getElementById('airlines-container').style.display = '';
+    document.getElementById('grid-controls').style.display = '';
     selectedCode = null;
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -884,7 +946,7 @@ function buildTrendSvg(values) {
     return `<div class="trend-chart">
         <svg viewBox="0 0 ${w} ${h}" class="trend-svg" preserveAspectRatio="none">
             <polyline points="${pts.join(' ')}"
-                fill="none" stroke="#7209b7" stroke-width="2.5"
+                fill="none" stroke="#a855f7" stroke-width="2.5"
                 stroke-linejoin="round" stroke-linecap="round"/>
             ${pts.map((pt, i) => {
                 const [x, y] = pt.split(',');
@@ -894,13 +956,68 @@ function buildTrendSvg(values) {
     </div>`;
 }
 
+// ── Sort + filter ─────────────────────────────────────────────────────
+function applyControls() {
+    const sortVal = document.getElementById('sort-select').value;
+    let list = allAirlines.slice();
+
+    if (activeTypeFilter !== 'all') {
+        list = list.filter(a => (a.carrier_type || 'mainline') === activeTypeFilter);
+    }
+    if (activeHealthFilter !== 'all') {
+        list = list.filter(a => {
+            const s = healthScore(a);
+            if (activeHealthFilter === 'healthy')    return s >= 70;
+            if (activeHealthFilter === 'watch')      return s >= 45 && s < 70;
+            if (activeHealthFilter === 'distressed') return s < 45;
+            return true;
+        });
+    }
+
+    list.sort((a, b) => {
+        switch (sortVal) {
+            case 'score-desc': return healthScore(b) - healthScore(a);
+            case 'score-asc':  return healthScore(a) - healthScore(b);
+            case 'emp-desc':   return (b.emp_total || 0) - (a.emp_total || 0);
+            case 'emp-asc':    return (a.emp_total || 0) - (b.emp_total || 0);
+            case 'name-asc':   return (a.name || '').localeCompare(b.name || '');
+        }
+        return 0;
+    });
+
+    renderGrid(list);
+    document.getElementById('results-count').textContent =
+        list.length !== allAirlines.length ? `${list.length} of ${allAirlines.length}` : `${list.length} airlines`;
+}
+
+function initFilterButtons() {
+    document.querySelectorAll('#filter-type .filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#filter-type .filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activeTypeFilter = btn.dataset.val;
+            applyControls();
+        });
+    });
+    document.querySelectorAll('#filter-health .filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#filter-health .filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activeHealthFilter = btn.dataset.val;
+            applyControls();
+        });
+    });
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────
 async function init() {
     try {
         const res = await fetch(`${API}/career/airlines`);
         const data = await res.json();
         allAirlines = data.airlines || [];
-        renderGrid(allAirlines);
+        initFilterButtons();
+        document.getElementById('grid-controls').style.display = '';
+        applyControls();
     } catch (e) {
         document.getElementById('airlines-container').innerHTML =
             '<div class="loading-state"><i class="fas fa-exclamation-triangle"></i>Unable to load airline data. Is the API running?</div>';

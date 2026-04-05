@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS airports (
     wac INT,
     airport_id INT,                         -- DOT Airport ID
     route_count INT DEFAULT 0,
+    total_passengers BIGINT DEFAULT 0,
+    carrier_count INT DEFAULT 0,
     has_fares BOOLEAN DEFAULT FALSE,
     INDEX idx_route_count (route_count),
     INDEX idx_has_fares (has_fares),
