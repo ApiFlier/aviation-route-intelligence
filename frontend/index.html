@@ -215,16 +215,11 @@
     <div class="info-panel" id="info-panel"></div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/config.js"></script>
+    <script src="/js/api.js"></script>
     <script>
         let map, mapLayer = null, currentBaseLayers = [];
         let selectedIndex = -1, searchResults = [], navStack = [];
         let aircraftCache = {};
-        
-        async function api(endpoint) {
-            const res = await fetch(`${CONFIG.API_URL}${endpoint}`);
-            if (!res.ok) throw new Error(`API error: ${res.status}`);
-            return res.json();
-        }
         
         const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri', maxZoom: 19 });
         const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { attribution: '', maxZoom: 19 });
@@ -252,14 +247,14 @@
         
         async function loadInitialData() {
             try {
-                const stats = await api('/stats');
+                const stats = await API.getStats();
                 document.getElementById('route-count').textContent = (stats.routes || 0).toLocaleString();
                 document.getElementById('airport-count').textContent = (stats.airports || 0).toLocaleString();
                 
-                const data = await api('/airports?has_routes=true&limit=2500');
+                const data = await API.getAirports({ hasRoutes: true, limit: 2500 });
                 showAirportsOnMap(data.airports);
-                
-                const acData = await api('/aircraft?limit=500');
+
+                const acData = await API.getAircraft({ limit: 500 });
                 acData.aircraft.forEach(ac => aircraftCache[ac.type_id] = ac.short_name || ac.long_name || ac.type_id);
                 
                 document.getElementById('loading').classList.add('hidden');
@@ -292,7 +287,7 @@
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(async () => {
                 try {
-                    const data = await api(`/airports?q=${encodeURIComponent(query)}&limit=8`);
+                    const data = await API.getAirports({ q: query, limit: 8 });
                     searchResults = data.airports;
                     selectedIndex = -1;
                     
@@ -344,7 +339,7 @@
             document.getElementById('autocomplete').classList.remove('visible');
             if (!query) return;
             try {
-                const data = await api(`/airports?q=${encodeURIComponent(query)}&limit=1`);
+                const data = await API.getAirports({ q: query, limit: 1 });
                 if (data.airports.length > 0) { selectAirport(data.airports[0].iata); input.value = ''; }
                 else { alert('Airport not found.'); }
             } catch (err) { alert('Search failed: ' + err.message); }
@@ -397,8 +392,8 @@
         async function selectAirport(iata) {
             try {
                 const [airportData, routesData] = await Promise.all([
-                    api(`/airports/${iata}`),
-                    api(`/airports/${iata}/routes?direction=out&limit=100`)
+                    API.getAirport(iata),
+                    API.getAirportRoutes(iata, { direction: 'out', limit: 100 })
                 ]);
                 
                 const airport = airportData.airport;
@@ -482,10 +477,10 @@
         async function selectRoute(fromIata, toIata) {
             try {
                 const [routeData, carriersData, faresData, schedulesData] = await Promise.all([
-                    api(`/routes/${fromIata}/${toIata}`),
-                    api(`/routes/${fromIata}/${toIata}/carriers`),
-                    api(`/routes/${fromIata}/${toIata}/fares/summary`).catch(() => ({ carriers: [], seasonal: [], carrier_seasonal: [], last_year: null })),
-                    api(`/routes/${fromIata}/${toIata}/schedules`).catch(() => ({ days: [], total_flights: 0 }))
+                    API.getRoute(fromIata, toIata),
+                    API.getRouteCarriers(fromIata, toIata),
+                    API.getRouteFares(fromIata, toIata).catch(() => ({ carriers: [], seasonal: [], carrier_seasonal: [], last_year: null })),
+                    API.getRouteSchedules(fromIata, toIata).catch(() => ({ days: [], total_flights: 0 }))
                 ]);
                 
                 const route = routeData.route;
@@ -655,9 +650,9 @@
         async function selectCarrier(fromIata, toIata, carrierCode) {
             try {
                 const [carriersData, faresData, schedulesData] = await Promise.all([
-                    api(`/routes/${fromIata}/${toIata}/carriers`),
-                    api(`/routes/${fromIata}/${toIata}/fares/summary`).catch(() => ({ carriers: [], seasonal: [], carrier_seasonal: [] })),
-                    api(`/routes/${fromIata}/${toIata}/schedules`).catch(() => ({ days: [] }))
+                    API.getRouteCarriers(fromIata, toIata),
+                    API.getRouteFares(fromIata, toIata).catch(() => ({ carriers: [], seasonal: [], carrier_seasonal: [] })),
+                    API.getRouteSchedules(fromIata, toIata).catch(() => ({ days: [] }))
                 ]);
 
                 const carrier = carriersData.carriers.find(c => c.carrier_code === carrierCode);
@@ -909,7 +904,7 @@
         async function closeInfoPanel() {
             document.getElementById('info-panel').classList.remove('visible');
             navStack = [];
-            const data = await api('/airports?has_routes=true&limit=2500');
+            const data = await API.getAirports({ hasRoutes: true, limit: 2500 });
             showAirportsOnMap(data.airports);
         }
         
