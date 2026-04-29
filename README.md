@@ -11,7 +11,7 @@ Flight route visualization tool using BTS (Bureau of Transportation Statistics) 
 ```bash
 # 1. Clone/copy project to server
 cd /
-git clone <repo> flightconn   # or extract zip
+git clone https://github.com/ApiFlier/FlightConnections.git flightconn   # or extract zip
 cd /flightconn
 
 # 2. Add CSV data files (see "Data Files" section below)
