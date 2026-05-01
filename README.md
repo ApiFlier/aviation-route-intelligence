@@ -12,7 +12,7 @@ A flight route, airline operations, fare, and airline career/health dashboard bu
 ### Part 1 — Install Docker
 
 ```bash
-sudo apt update && sudo apt upgrade -y && sudo apt install -y git curl
+sudo apt update && sudo apt upgrade -y && sudo apt install -y git curl openssl netcat-openbsd
 curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER
 ```
 

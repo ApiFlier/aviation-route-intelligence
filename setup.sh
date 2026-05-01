@@ -216,3 +216,24 @@ echo ""
 echo "  Full reset (deletes all data):"
 echo "    docker compose down -v && ./setup.sh"
 echo ""
+
+# Optional cleanup
+echo ""
+read -p "Would you like to delete the local repo files? The site will continue running. (y/N): " CLEANUP
+if [[ "$CLEANUP" =~ ^[Yy]$ ]]; then
+    cd /
+    rm -rf "$REPO_DIR"
+    echo ""
+    echo "[INFO] Local repo files removed."
+    echo "[INFO] Containers, images, and the MySQL volume are still running."
+    echo ""
+    echo "Manage with:"
+    echo "  docker ps"
+    echo "  docker logs flightconn-api"
+    echo "  docker logs flightconn-frontend"
+    echo "  docker logs flightconn-db"
+    echo "  docker stop flightconn-frontend flightconn-api flightconn-db"
+    echo "  docker start flightconn-db flightconn-api flightconn-frontend"
+else
+    echo "[INFO] Local repo files kept at $REPO_DIR"
+fi
