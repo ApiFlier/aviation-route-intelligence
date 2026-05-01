@@ -23,3 +23,7 @@ api/Data/*.zip
 Thumbs.db
 .vscode/
 .idea/
+
+# Runtime logs
+logs/
+*.log
