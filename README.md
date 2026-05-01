@@ -1,322 +1,253 @@
 # FlightConn
 
-Flight route visualization tool using BTS (Bureau of Transportation Statistics) T-100 aviation data. Shows passenger and cargo routes between airports with carrier details, aircraft types, and operational statistics.
+A flight route, airline operations, fare, and airline career/health dashboard built from BTS aviation datasets. Shows route traffic, carriers, fares, on-time performance, airline workforce, financials, hubs, network size, and fleet data.
 
-**Stack:** Python Flask API + MySQL + Leaflet.js frontend, containerized with Docker Compose.
+**Live site:** http://IP:Port  
+**Career page:** http://IP:Port/career/
 
 ---
 
-## Quick Start (New Server Deployment)
+## Deploy
+
+### Part 1 — Install Docker
 
 ```bash
-# 1. Clone/copy project to server
-cd /
-git clone https://github.com/ApiFlier/FlightConnections.git flightconn   # or extract zip
-cd /flightconn
+sudo apt update && sudo apt upgrade -y && sudo apt install -y git curl
+curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER
+```
 
-# 2. Add CSV data files (see "Data Files" section below)
-# Place all CSV files in /flightconn/api/Data/
+Log out and back in, then verify:
 
-# 3. Start containers
-docker compose up -d --build
+```bash
+docker --version && docker compose version
+```
 
-# 4. Wait for MySQL to initialize (~30 seconds)
-docker compose logs -f db   # Watch for "ready for connections", then Ctrl+C
+### Part 2 — Clone and run
 
-# 5. Load data into MySQL
-docker exec flightconn-api python3 -u -c "
-from Classes import DataProcessor
-processor = DataProcessor('Data')
-processor.process_all()
-"
+```bash
+git clone https://github.com/ApiFlier/FlightConnections.git ./flightconn && cd ./flightconn && chmod +x setup.sh && ./setup.sh
+```
 
-# 6. Access the app
-# Frontend: http://your-server:8082
-# API: http://your-server:8083/api
+`setup.sh` will:
+
+- Generate a `.env` file with random passwords and the next available ports (starting at 8082)
+- Build and start all three Docker containers
+- Wait for MySQL to pass its health check
+- Restore `api/Data/db_backup.sql.gz` directly into MySQL from the host — **no raw CSV files needed**
+- Verify row counts for all major tables
+- Confirm the frontend and API are responding
+- Print the live URL and useful maintenance commands
+
+---
+
+## After setup
+
+```bash
+# View running containers
+docker compose ps
+
+# Stream logs (all containers)
+docker compose logs -f
+
+# Restart the API after a code change
+docker compose up -d --build api
+
+# Check data counts directly in MySQL
+source .env
+docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" flightconn-db \
+  mysql -uroot flightconn -e "
+    SELECT 'routes' as t, COUNT(*) FROM routes
+    UNION SELECT 'route_carriers', COUNT(*) FROM route_carriers
+    UNION SELECT 'route_fares',    COUNT(*) FROM route_fares
+    UNION SELECT 'route_schedules',COUNT(*) FROM route_schedules;
+  "
 ```
 
 ---
 
-## Data Files
-
-All CSV files go in `/flightconn/api/Data/`. The T-100 data is annual, so refresh yearly.
-
-### Required Files
-
-| File | Source | Notes |
-|------|--------|-------|
-| `Master Coord.csv` | Aviation Support Tables | Airport coordinates, ~4MB |
-| `Aircraft Types.csv` | Aviation Support Tables | Aircraft codes, ~37KB |
-| `Carrier Decode.csv` | Aviation Support Tables | Carrier info, ~370KB |
-| `T-100 Market.csv` | T-100 Market (combined) | Passengers/freight by route, ~86MB |
-| `T-100 Segment.csv` | T-100 Segment (combined) | Flights/seats/aircraft by route, ~178MB |
-
-### Download Instructions
-
-#### 1. Aviation Support Tables (airports, aircraft, carriers)
-
-Go to: https://www.transtats.bts.gov/Tables.asp?QO_VQ=EEE&QO_anzr=Nv4vnqvba%FDFhccb4g%FDGnoyr5765LW8fVDN
-
-Download these lookup tables:
-- **Master Coordinate** → Save as `Master Coord.csv`
-- **Aircraft Types** → Save as `Aircraft Types.csv`
-- **Carrier Decode** → Save as `Carrier Decode.csv`
-
-#### 2. T-100 Market Data (passengers, freight, mail)
-
-Go to: https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoession_VQ=GDI&QO_fu146_anzr=Nv4%20Pn44vr45
-
-**Settings:**
-- Filter Geography: All
-- Filter Year: Select the year you want
-- Filter Period: All months (or select all 12)
-
-**Required columns (check these):**
-- PASSENGERS
-- FREIGHT  
-- MAIL
-- DISTANCE
-- UNIQUE_CARRIER
-- UNIQUE_CARRIER_NAME
-- ORIGIN
-- DEST
-
-Click Download → Save as `T-100 Market.csv`
-
-**Note:** You'll need to download BOTH domestic and international, then combine them:
-- Download domestic T-100 Market
-- Download international T-100 Market  
-- Combine into single `T-100 Market.csv` (keep header from first file only)
-
-#### 3. T-100 Segment Data (flights, seats, aircraft)
-
-Go to: https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoession_VQ=GDH&QO_fu146_anzr=Nv4%20Pn44vr45
-
-**Settings:**
-- Filter Geography: All
-- Filter Year: Select the year you want
-- Filter Period: All months
-
-**Required columns (check these):**
-- DEPARTURES_SCHEDULED
-- DEPARTURES_PERFORMED
-- SEATS
-- AIR_TIME
-- AIRCRAFT_TYPE
-- UNIQUE_CARRIER
-- UNIQUE_CARRIER_NAME
-- ORIGIN
-- DEST
-
-Click Download → Save as `T-100 Segment.csv`
-
-**Note:** Same as Market - download domestic + international, combine into one file.
-
-### Combining Domestic + International Files
+## Taking a backup
 
 ```bash
-# For Market data
-head -1 T-100_Domestic_Market.csv > T-100\ Market.csv
-tail -n +2 T-100_Domestic_Market.csv >> T-100\ Market.csv
-tail -n +2 T-100_International_Market.csv >> T-100\ Market.csv
-
-# For Segment data
-head -1 T-100_Domestic_Segment.csv > T-100\ Segment.csv
-tail -n +2 T-100_Domestic_Segment.csv >> T-100\ Segment.csv
-tail -n +2 T-100_International_Segment.csv >> T-100\ Segment.csv
+source .env
+docker exec \
+  -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
+  flightconn-db \
+  mysqldump -uroot flightconn \
+  | gzip > api/Data/db_backup_$(date +%Y%m%d).sql.gz
 ```
 
 ---
 
-## Annual Data Refresh
-
-Run this each year when new T-100 data is available (typically Q2 for previous year's data):
+## Restoring a backup
 
 ```bash
-cd /flightconn
-
-# 1. Download new CSV files and place in /flightconn/api/Data/
-#    (see download instructions above)
-
-# 2. Reload database (truncates existing data and reloads)
-docker exec flightconn-api python3 -u -c "
-from Classes import DataProcessor
-processor = DataProcessor('Data')
-processor.process_all()
-"
-
-# Processing takes ~5-10 minutes depending on server
-# You'll see progress output as it runs
+source .env
+gunzip -c api/Data/db_backup_YYYYMMDD.sql.gz \
+  | docker exec -i \
+      -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
+      flightconn-db \
+      mysql -uroot flightconn
 ```
 
 ---
 
-## Architecture
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | HTML5, Vanilla JS, Leaflet.js, Font Awesome, Esri/CARTO/OSM tiles |
+| API | Python 3.11, Flask 3.0, Flask-CORS, MySQLdb |
+| Database | MySQL 8.0 |
+| Web server | nginx:alpine (reverse proxy, serves static files) |
+| Orchestration | Docker Compose |
+
+---
+
+## Project structure
 
 ```
 /flightconn/
-├── docker-compose.yml          # Main compose (frontend + api + db)
-├── README.md
+├── docker-compose.yml          # Orchestrates frontend + api + db
+├── setup.sh                    # One-command deploy script
+├── .env                        # Generated by setup.sh (not in git)
 ├── frontend/
 │   ├── Dockerfile              # nginx:alpine
-│   ├── nginx.conf              # Proxies /api to backend
+│   ├── nginx.conf              # Proxies /api/* → api:8080
 │   ├── index.html              # Leaflet map UI
-│   └── config.js               # API URL config
+│   ├── config.js               # API URL config (uses /api proxy)
+│   ├── js/api.js               # Fetch wrapper
+│   └── career/index.html       # Career/airline health page
 └── api/
-    ├── docker-compose.yml      # Standalone API (api + db only)
-    ├── Dockerfile              # Python 3.11
+    ├── Dockerfile              # python:3.11-slim
+    ├── main.py                 # Flask entry point, /health, /api/stats
     ├── requirements.txt
-    ├── main.py                 # Flask app entry point
     ├── Data/
-    │   ├── schema.sql          # MySQL schema (auto-loaded on first run)
-    │   └── *.csv               # Data files (not in git)
+    │   ├── db_backup.sql.gz    # Compressed restore file (in git, ~42 MB)
+    │   └── schema.sql          # MySQL schema (loaded on first DB start)
     ├── Modules/
     │   ├── airports.py         # /api/airports endpoints
     │   ├── routes.py           # /api/routes endpoints
-    │   └── carriers.py         # /api/carriers, /api/aircraft
+    │   ├── carriers.py         # /api/carriers, /api/aircraft endpoints
+    │   ├── fares.py            # /api/routes/*/fares endpoints
+    │   └── schedules.py        # /api/routes/*/schedules endpoints
     └── Classes/
         ├── Database.py         # MySQL connection manager
-        └── DataProcessor.py    # CSV to MySQL loader
+        └── DataProcessor.py    # BTS CSV → MySQL loader (annual refresh)
 ```
-
-### Containers
-
-| Container | Port | Description |
-|-----------|------|-------------|
-| flightconn-frontend | 8082 | nginx serving static files, proxies /api |
-| flightconn-api | 8083 | Flask REST API |
-| flightconn-db | 3307 | MySQL 8.0 |
-
-### Volumes
-
-- `flightconn_mysql` - MySQL data persistence
 
 ---
 
-## API Endpoints
+## API endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/stats` | Overall statistics |
-| `GET /api/airports?q=&limit=` | List/search airports |
-| `GET /api/airports/{iata}` | Airport details + stats |
-| `GET /api/airports/{iata}/routes` | Routes from/to airport |
-| `GET /api/routes?origin=&dest=` | List/filter routes |
-| `GET /api/routes/{origin}/{dest}` | Route details |
-| `GET /api/routes/{origin}/{dest}/carriers` | Carriers on route |
-| `GET /api/routes/top?metric=passengers` | Top routes |
-| `GET /api/carriers?q=` | List/search carriers |
-| `GET /api/carriers/{code}` | Carrier details |
-| `GET /api/carriers/{code}/routes` | Carrier's routes |
+| `GET /health` | DB connection health check |
+| `GET /api/stats` | Overall route, airport, carrier, and passenger counts |
+| `GET /api/airports?q=&limit=` | List or search airports |
+| `GET /api/airports/{iata}` | Airport detail and stats |
+| `GET /api/airports/{iata}/routes` | Routes from/to an airport |
+| `GET /api/routes?origin=&dest=` | List or filter routes |
+| `GET /api/routes/{origin}/{dest}` | Route detail |
+| `GET /api/routes/{origin}/{dest}/carriers` | Carriers operating a route |
+| `GET /api/routes/{origin}/{dest}/fares/summary` | Quarterly fare data |
+| `GET /api/routes/{origin}/{dest}/schedules` | Typical schedules by day |
+| `GET /api/carriers?q=` | List or search carriers |
+| `GET /api/carriers/{code}` | Carrier detail and aggregate stats |
+| `GET /api/carriers/{code}/routes` | Routes operated by a carrier |
 | `GET /api/aircraft?q=` | List aircraft types |
-| `GET /health` | Health check |
 
 ---
 
-## Common Operations
+## Ports
 
-### View logs
+Default ports (auto-selected by `setup.sh` to avoid conflicts):
+
+| Container | Default external port | Internal port |
+|-----------|----------------------|---------------|
+| flightconn-frontend | 8082 | 80 |
+| flightconn-api | 8083 | 8080 |
+| flightconn-db | (not exposed) | 3306 |
+
+Ports are stored in `.env` and can be changed before running `setup.sh`.
+
+---
+
+## Data notes
+
+The database is pre-built from BTS aviation datasets and shipped as `api/Data/db_backup.sql.gz` (~42 MB compressed). `setup.sh` restores it automatically — **no CSV files are needed to deploy**.
+
+Tables included in the backup:
+
+| Table | Contents |
+|-------|----------|
+| airports | IATA codes, coordinates, route/passenger stats |
+| carriers | Airline codes, names, active status |
+| aircraft | Aircraft type codes and descriptions |
+| routes | Origin/dest pairs, distance, passengers, freight |
+| route_carriers | Per-carrier operations, on-time %, delays, fleet |
+| route_fares | Quarterly DB1B fare data by route and carrier |
+| route_schedules | Typical flights by day-of-week with delay breakdown |
+| carrier_employees | Annual employee counts by category |
+| carrier_financials | Quarterly revenue, expenses, salary data |
+| carrier_hubs | Top hub airports per carrier per year |
+| carrier_network | Domestic/international route counts per carrier |
+| carrier_fleet | Annual aircraft counts |
+
+### Raw BTS CSV files
+
+The original BTS T-100 Market, T-100 Segment, and lookup CSVs (~270 MB combined) are **excluded from this repository** via `.gitignore`. **Normal deployment does not need them** — `setup.sh` restores everything from `db_backup.sql.gz`.
+
+### Annual data refresh (developer workflow)
+
+Refreshing from raw BTS CSVs is a developer step, not part of a clean-server deployment. The result of a refresh is a new `db_backup.sql.gz` that gets committed so future fresh deploys pick it up automatically.
+
+To refresh:
+
+1. Keep or re-clone the repo so `docker compose` commands are available.
+2. Download updated CSVs from [BTS transtats](https://www.transtats.bts.gov/) and place them in `api/Data/`.
+3. Make the CSVs accessible to the running API container — pick one approach:
+
+   **Option A — temporary bind mount** (recommended): add the following under the `api:` service in `docker-compose.yml` before rebuilding:
+   ```yaml
+   volumes:
+     - ./api/Data:/app/Data
+   ```
+   Then rebuild: `docker compose up -d --build`
+
+   **Option B — docker cp**: copy files into the already-running container:
+   ```bash
+   docker cp api/Data/. flightconn-api:/app/Data/
+   ```
+
+4. Run DataProcessor inside the container:
+   ```bash
+   docker exec flightconn-api python3 -u -c "
+   from Classes import DataProcessor
+   processor = DataProcessor('Data')
+   processor.process_all()
+   "
+   ```
+
+5. Take a new backup and commit it so fresh servers get the updated data:
+   ```bash
+   source .env
+   docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" flightconn-db \
+     mysqldump -uroot flightconn \
+     | gzip > api/Data/db_backup.sql.gz
+   git add api/Data/db_backup.sql.gz && git commit -m "Update db backup" && git push
+   ```
+
+6. If you added the temporary bind mount in step 3, remove it from `docker-compose.yml` and rebuild before committing.
+
+---
+
+## Full reset
+
 ```bash
-docker compose logs -f           # All containers
-docker compose logs -f api       # API only
-docker compose logs -f db        # Database only
-```
-
-### Restart services
-```bash
-docker compose restart           # All
-docker compose restart api       # API only
-```
-
-### Rebuild after code changes
-```bash
-docker compose up -d --build
-```
-
-### Access MySQL directly
-```bash
-docker exec -it flightconn-db mysql -u flightconn -pflightconn flightconn
-
-# Example queries
-SELECT COUNT(*) FROM routes;
-SELECT COUNT(*) FROM airports WHERE route_count > 0;
-SELECT * FROM stats;
-```
-
-### Check data counts
-```bash
-docker exec flightconn-api python3 -c "
-from Classes import get_db
-db = get_db()
-print('Routes:', db.execute_one('SELECT COUNT(*) as c FROM routes')['c'])
-print('Airports with routes:', db.execute_one('SELECT COUNT(*) as c FROM airports WHERE route_count > 0')['c'])
-print('Carriers:', db.execute_one('SELECT COUNT(DISTINCT carrier_code) as c FROM route_carriers')['c'])
-"
-```
-
-### Full reset (wipe database and reload)
-```bash
-docker compose down -v           # Remove volumes
-docker compose up -d --build     # Recreate
-# Wait for db to be healthy, then reload data
-docker exec flightconn-api python3 -u -c "
-from Classes import DataProcessor
-processor = DataProcessor('Data')
-processor.process_all()
-"
+docker compose down -v   # removes containers and the MySQL data volume
+./setup.sh               # rebuilds everything from backup
 ```
 
 ---
 
-## Troubleshooting
-
-### "Failed to load airport: API error: 500"
-Check API logs: `docker compose logs api`
-Usually a SQL query issue - look for the specific error.
-
-### Airports missing from map
-The frontend requests `limit=2500` airports. If you have more airports with routes, increase the limit in `frontend/index.html` and rebuild.
-
-### Data not loading (stuck at cursor)
-Run with unbuffered output:
-```bash
-docker exec flightconn-api python3 -u -c "..."
-```
-
-### MySQL connection refused
-Wait for healthcheck: `docker compose logs -f db`
-MySQL takes ~30 seconds to initialize on first run.
-
-### CSV encoding errors
-Ensure files are UTF-8. Convert if needed:
-```bash
-iconv -f ISO-8859-1 -t UTF-8 input.csv > output.csv
-```
-
----
-
-## MySQL Credentials
-
-| Setting | Value |
-|---------|-------|
-| Host | db (internal) / localhost:3307 (external) |
-| User | flightconn |
-| Password | flightconn |
-| Database | flightconn |
-| Root Password | rootpass |
-
----
-
-## Performance Notes
-
-- Initial data load: ~5-10 minutes
-- Database size: ~500MB
-- Frontend loads ~2000 airports on initial view
-- Route queries are indexed on passengers, freight, origin, dest
-
----
-
-## License
-
-Data sourced from Bureau of Transportation Statistics (BTS), U.S. Department of Transportation.
-https://www.transtats.bts.gov/
+Data sourced from the [Bureau of Transportation Statistics (BTS)](https://www.transtats.bts.gov/), U.S. Department of Transportation.

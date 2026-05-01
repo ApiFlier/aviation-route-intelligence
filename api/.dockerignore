@@ -1,3 +1,5 @@
 Data/*.csv
+Data/*.zip
+Data/*.sql.gz
 __pycache__
 *.pyc

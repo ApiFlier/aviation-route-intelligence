@@ -34,11 +34,11 @@ class Database:
 
     def __init__(self):
         self.config = {
-            'host': os.getenv('MYSQL_HOST', 'localhost'),
-            'port': int(os.getenv('MYSQL_PORT', 3306)),
-            'user': os.getenv('MYSQL_USER', 'flightconn'),
-            'passwd': os.getenv('MYSQL_PASSWORD', 'flightconn'),
-            'db': os.getenv('MYSQL_DATABASE', 'flightconn'),
+            'host': os.getenv('DB_HOST', os.getenv('MYSQL_HOST', 'localhost')),
+            'port': int(os.getenv('DB_PORT', os.getenv('MYSQL_PORT', 3306))),
+            'user': os.getenv('DB_USER', os.getenv('MYSQL_USER', 'flightconn')),
+            'passwd': os.getenv('DB_PASSWORD', os.getenv('MYSQL_PASSWORD', 'flightconn')),
+            'db': os.getenv('DB_NAME', os.getenv('MYSQL_DATABASE', 'flightconn')),
             'charset': 'utf8mb4',
             'use_unicode': True,
         }

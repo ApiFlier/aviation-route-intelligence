@@ -1,11 +1,25 @@
-# Large data files - too big for GitHub
-
-# On-Time (228-285MB each)
-api/Data/On-Time Performance Data*.csv
-
-# DB1B (476MB - 2.1GB each)
-api/Data/Origin and Destination Survey*.csv
-
-# All T-100 files (16MB - 178MB each)
-api/Data/Air Carrier Statistics*.csv
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+
+# Environment
+.env
+
+# Large raw data files
+api/Data/*.csv
+api/Data/*.zip
+
+# Keep deploy database backup and schema files
+!api/Data/db_backup.sql.gz
+!api/Data/schema.sql
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
