@@ -12,7 +12,7 @@ from Modules import airports_bp, routes_bp, carriers_bp, fares_bp, schedules_bp
 from Classes import get_db
 
 app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET', 'dev-secret-change-in-production')
+app.secret_key = os.getenv('FLASK_SECRET') or os.urandom(32)
 CORS(app)  # Enable CORS for frontend
 
 # Register blueprints
