@@ -27,6 +27,10 @@ docker --version && docker compose version
 ```bash
 git clone https://github.com/ApiFlier/FlightConnections.git ./flightconn && cd ./flightconn && chmod +x setup.sh && ./setup.sh
 ```
+```bash
+git clone https://github.com/ApiFlier/FlightConnections.git ./flightconn && sudo chown -R $USER:$USER ./flightconn && cd ./flightconn && chmod +x setup.sh && ./setup.sh
+```
+
 
 `setup.sh` will:
 
