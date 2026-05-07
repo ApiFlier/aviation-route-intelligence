@@ -47,37 +47,53 @@ next_open_port() {
     echo "$port"
 }
 
-# Generate .env if it does not exist
+# Generate/Update .env
 if [ ! -f "$ENV_FILE" ]; then
     echo "==> Generating .env with random credentials..."
 
     MYSQL_ROOT_PASSWORD=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 40)
     DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 40)
     FLASK_SECRET=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 40)
-    FRONTEND_PORT=$(next_open_port 8082)
-    API_PORT=$(next_open_port $((FRONTEND_PORT + 1)))
+    APP_PORT=$(next_open_port 8082)
 
     cat > "$ENV_FILE" <<EOF
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
 DB_PASSWORD=$DB_PASSWORD
 FLASK_SECRET=$FLASK_SECRET
-FRONTEND_PORT=$FRONTEND_PORT
-API_PORT=$API_PORT
+APP_PORT=$APP_PORT
 EOF
     chmod 600 "$ENV_FILE"
-    echo "    Created .env  (FRONTEND_PORT=$FRONTEND_PORT, API_PORT=$API_PORT)"
+    echo "    Created .env (APP_PORT=$APP_PORT)"
 else
-    echo "==> .env already exists, skipping generation."
+    echo "==> Updating .env for new architecture..."
+    # Source existing .env
+    set -a
+    source "$ENV_FILE"
+    set +a
+
+    # Determine starting port for search
+    START_PORT="${APP_PORT:-${FRONTEND_PORT:-8082}}"
+    
+    # Check if APP_PORT is missing or if we need to verify availability
+    FINAL_PORT=$(next_open_port "$START_PORT")
+    
+    if [ "$FINAL_PORT" != "$APP_PORT" ] || ! grep -q "APP_PORT=" "$ENV_FILE"; then
+        # Remove old PORT variables if they exist to keep it clean
+        sed -i '/FRONTEND_PORT=/d' "$ENV_FILE"
+        sed -i '/API_PORT=/d' "$ENV_FILE"
+        sed -i '/APP_PORT=/d' "$ENV_FILE"
+        echo "APP_PORT=$FINAL_PORT" >> "$ENV_FILE"
+        echo "    Updated .env (APP_PORT=$FINAL_PORT)"
+        APP_PORT=$FINAL_PORT
+    else
+        echo "    .env is already up to date (APP_PORT=$APP_PORT)."
+    fi
 fi
 
-# Source .env so this script can use the variables
+# Source .env again to ensure we have the latest
 set -a
-# shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
-
-FRONTEND_PORT="${FRONTEND_PORT:-8082}"
-API_PORT="${API_PORT:-8083}"
 
 # Build and start containers
 echo ""
@@ -103,15 +119,23 @@ until [ "$(docker inspect --format='{{.State.Health.Status}}' flightconn-db 2>/d
 done
 echo "    MySQL is healthy.                    "
 
-# Restore database from backup
-echo ""
-echo "==> Restoring database from api/Data/db_backup.sql.gz..."
-gunzip -c "$BACKUP" \
-  | docker exec -i \
-      -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
-      flightconn-db \
-      mysql -uroot flightconn
-echo "    Restore complete."
+# Check if database already has data
+HAS_DATA=$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" flightconn-db mysql -uroot flightconn -sNe "SELECT COUNT(*) FROM airports;" 2>/dev/null || echo "0")
+
+if [ "$HAS_DATA" -eq "0" ]; then
+    # Restore database from backup
+    echo ""
+    echo "==> Restoring database from api/Data/db_backup.sql.gz..."
+    gunzip -c "$BACKUP" \
+      | docker exec -i \
+          -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
+          flightconn-db \
+          mysql -uroot flightconn
+    echo "    Restore complete."
+else
+    echo ""
+    echo "==> Database already contains data, skipping restore."
+fi
 
 # Verify row counts
 echo ""
@@ -130,41 +154,31 @@ for TABLE in routes route_carriers route_fares route_schedules carrier_network; 
     fi
 done
 
-if [ "$VERIFY_OK" = false ]; then
-    echo "    Some tables appear empty — check the backup file."
-fi
-
-# Verify frontend responds
+# Verify app responds
 echo ""
-echo "==> Verifying frontend..."
-FRONTEND_OK=false
+echo "==> Verifying app..."
+APP_OK=false
 for i in $(seq 1 15); do
-    if curl -sf -o /dev/null "http://localhost:${FRONTEND_PORT}/"; then
-        echo "    Frontend OK."
-        FRONTEND_OK=true
+    if curl -sf -o /dev/null "http://localhost:${APP_PORT}/health"; then
+        echo "    App OK (API health check)."
+        APP_OK=true
         break
     fi
     sleep 2
 done
-if [ "$FRONTEND_OK" = false ]; then
-    echo "    WARNING: Frontend not responding at http://localhost:${FRONTEND_PORT}" >&2
-    echo "    Try: docker compose logs frontend"
+
+if [ "$APP_OK" = true ]; then
+    if curl -sf -o /dev/null "http://localhost:${APP_PORT}/"; then
+        echo "    App OK (Frontend check)."
+    else
+        echo "    WARNING: Frontend not responding at http://localhost:${APP_PORT}"
+        APP_OK=false
+    fi
 fi
 
-# Verify API health endpoint
-echo "==> Verifying API..."
-API_OK=false
-for i in $(seq 1 15); do
-    if curl -sf -o /dev/null "http://localhost:${API_PORT}/health"; then
-        echo "    API OK."
-        API_OK=true
-        break
-    fi
-    sleep 2
-done
-if [ "$API_OK" = false ]; then
-    echo "    WARNING: API not responding at http://localhost:${API_PORT}/health" >&2
-    echo "    Try: docker compose logs api"
+if [ "$APP_OK" = false ]; then
+    echo "    WARNING: App not responding correctly at http://localhost:${APP_PORT}" >&2
+    echo "    Try: docker compose logs app"
 fi
 
 # Summary
@@ -172,68 +186,15 @@ echo ""
 echo "============================================="
 echo "  FlightConn is running!"
 echo ""
-echo "  Frontend:  http://localhost:${FRONTEND_PORT}"
-echo "  Career:    http://localhost:${FRONTEND_PORT}/career/"
-echo "  API:       http://localhost:${API_PORT}/api"
-echo "  Health:    http://localhost:${API_PORT}/health"
+echo "  URL:       http://localhost:${APP_PORT}"
+echo "  Career:    http://localhost:${APP_PORT}/career/"
+echo "  API:       http://localhost:${APP_PORT}/api"
+echo "  Health:    http://localhost:${APP_PORT}/health"
 echo "============================================="
 echo ""
-echo "NOTE: containers, images, and the MySQL data volume are independent"
-echo "of this repo folder. If you delete the repo, Docker keeps running."
-echo "However, 'docker compose' commands require the repo to be present."
-echo "Without the repo, manage containers with:"
-echo "  docker ps"
-echo "  docker stop flightconn-frontend flightconn-api flightconn-db"
-echo "  docker start flightconn-frontend flightconn-api flightconn-db"
-echo "  docker logs flightconn-api"
-echo "Reclone the repo any time to regain 'docker compose' access."
+echo "Useful commands:"
+echo "  ./backup.sh          # Create a DB backup"
+echo "  ./restore.sh <file>  # Restore a DB backup"
+echo "  docker compose logs -f"
+echo "  docker compose down"
 echo ""
-echo "Useful commands (run from this repo folder):"
-echo ""
-echo "  Logs:"
-echo "    docker compose logs -f                    # all containers"
-echo "    docker compose logs -f api                # API only"
-echo "    docker compose logs -f db                 # DB only"
-echo ""
-echo "  Restart / rebuild:"
-echo "    docker compose restart api"
-echo "    docker compose up -d --build"
-echo ""
-echo "  Take a backup:"
-echo "    source .env"
-echo "    docker exec -e MYSQL_PWD=\"\$MYSQL_ROOT_PASSWORD\" flightconn-db \\"
-echo "      mysqldump -uroot flightconn \\"
-echo "      | gzip > api/Data/db_backup_\$(date +%Y%m%d).sql.gz"
-echo ""
-echo "  Restore a backup:"
-echo "    source .env"
-echo "    gunzip -c api/Data/db_backup_YYYYMMDD.sql.gz \\"
-echo "      | docker exec -i -e MYSQL_PWD=\"\$MYSQL_ROOT_PASSWORD\" flightconn-db mysql -uroot flightconn"
-echo ""
-echo "  Stop containers:"
-echo "    docker compose down"
-echo ""
-echo "  Full reset (deletes all data):"
-echo "    docker compose down -v && ./setup.sh"
-echo ""
-
-# Optional cleanup
-echo ""
-read -p "Would you like to delete the local repo files? The site will continue running. (y/N): " CLEANUP
-if [[ "$CLEANUP" =~ ^[Yy]$ ]]; then
-    cd /
-    rm -rf "$REPO_DIR"
-    echo ""
-    echo "[INFO] Local repo files removed."
-    echo "[INFO] Containers, images, and the MySQL volume are still running."
-    echo ""
-    echo "Manage with:"
-    echo "  docker ps"
-    echo "  docker logs flightconn-api"
-    echo "  docker logs flightconn-frontend"
-    echo "  docker logs flightconn-db"
-    echo "  docker stop flightconn-frontend flightconn-api flightconn-db"
-    echo "  docker start flightconn-db flightconn-api flightconn-frontend"
-else
-    echo "[INFO] Local repo files kept at $REPO_DIR"
-fi

@@ -2,17 +2,23 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install MySQL client
+# Install MySQL client and build dependencies
 RUN apt-get update && apt-get install -y \
     default-libmysqlclient-dev \
     build-essential \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# Copy backend requirements and install
+COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy backend code
+COPY api/ .
+
+# Copy frontend assets to static folder
+# Note: Build context must be project root
+COPY frontend/ ./static/
 
 EXPOSE 8080
 

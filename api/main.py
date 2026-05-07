@@ -5,13 +5,13 @@ REST API for flight route data
 """
 
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 
 from Modules import airports_bp, routes_bp, carriers_bp, fares_bp, schedules_bp
 from Classes import get_db
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='')
 app.secret_key = os.getenv('FLASK_SECRET') or os.urandom(32)
 CORS(app)  # Enable CORS for frontend
 
@@ -24,7 +24,20 @@ app.register_blueprint(schedules_bp)
 
 
 @app.route('/')
-def index():
+def serve_index():
+    """Serve the main frontend page."""
+    return send_from_directory(app.static_folder, 'index.html')
+
+
+@app.route('/career/')
+@app.route('/career')
+def serve_career():
+    """Serve the career page."""
+    return send_from_directory(os.path.join(app.static_folder, 'career'), 'index.html')
+
+
+@app.route('/api')
+def api_index():
     """API info endpoint."""
     return jsonify({
         'name': 'FlightConn API',

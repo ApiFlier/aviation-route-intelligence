@@ -16,9 +16,11 @@ services:
       retries: 10
     restart: unless-stopped
 
-  api:
-    build: ./api
-    container_name: flightconn-api
+  app:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: flightconn-app
     environment:
       DB_HOST: db
       DB_PORT: 3306
@@ -27,19 +29,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       FLASK_SECRET: ${FLASK_SECRET}
     ports:
-      - "${API_PORT:-8083}:8080"
+      - "${APP_PORT:-8082}:8080"
     depends_on:
       db:
         condition: service_healthy
-    restart: unless-stopped
-
-  frontend:
-    build: ./frontend
-    container_name: flightconn-frontend
-    ports:
-      - "${FRONTEND_PORT:-8082}:80"
-    depends_on:
-      - api
     restart: unless-stopped
 
 volumes:
