@@ -10,10 +10,11 @@ services:
     volumes:
       - flightconn_mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysql -uroot -e 'SELECT 1' >/dev/null 2>&1"]
       interval: 5s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 24
+      start_period: 30s
     restart: unless-stopped
 
   app:

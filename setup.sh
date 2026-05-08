@@ -180,25 +180,48 @@ done
 echo "    MySQL is healthy.                    "
 
 # ── Verify credentials before touching any data ───────────────────────
-# Guards against the edge case where .env was regenerated while an existing
-# volume still holds the original MySQL root password.
+# Retries up to 60s: on a fresh volume MySQL runs a two-phase init
+# (init mode → normal mode) during which auth is not yet committed.
+# The healthcheck already requires a successful SELECT 1, but we re-verify
+# here to catch the edge case where .env was regenerated against an
+# existing volume that still holds the original root password.
 echo ""
 echo "==> Verifying database credentials..."
-if ! docker exec \
-       -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
-       flightconn-db \
-       mysql -uroot -sNe "SELECT 1;" >/dev/null 2>&1; then
+CRED_OK=false
+for i in $(seq 1 20); do
+    if docker exec \
+           -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
+           flightconn-db \
+           mysql -uroot -sNe "SELECT 1;" >/dev/null 2>&1; then
+        CRED_OK=true
+        break
+    fi
+    sleep 3
+    printf "    ...%ds elapsed\r" "$((i * 3))"
+done
+
+if [ "$CRED_OK" = "false" ]; then
+    # Distinguish auth failure from connectivity failure
+    CONNECT_ERR=$(docker exec \
+        -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
+        flightconn-db \
+        mysql -uroot -sNe "SELECT 1;" 2>&1 || true)
     echo ""
-    echo "ERROR: Cannot authenticate with the database." >&2
-    echo "  The credentials in .env do not match the existing database volume." >&2
-    echo ""
-    echo "  This usually means .env was regenerated while the database volume" >&2
-    echo "  (flightconn_mysql) still held the original MySQL root password." >&2
-    echo ""
-    echo "  To fix:" >&2
-    echo "    docker compose down" >&2
-    echo "    docker volume rm flightconn_mysql" >&2
-    echo "    ./setup.sh" >&2
+    if echo "$CONNECT_ERR" | grep -qi "access denied"; then
+        echo "ERROR: Database authentication failed." >&2
+        echo "  The credentials in .env do not match the existing database volume." >&2
+        echo ""
+        echo "  This usually means .env was regenerated while the database volume" >&2
+        echo "  (flightconn_mysql) still held the original MySQL root password." >&2
+        echo ""
+        echo "  To fix:" >&2
+        echo "    docker compose down" >&2
+        echo "    docker volume rm flightconn_mysql" >&2
+        echo "    ./setup.sh" >&2
+    else
+        echo "ERROR: Cannot connect to the database after 60s." >&2
+        echo "  Try: docker compose logs db" >&2
+    fi
     exit 1
 fi
 echo "    Credentials OK."
