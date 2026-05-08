@@ -71,16 +71,16 @@ if [ "$VOLUME_EXISTS" = "true" ] && [ ! -f "$ENV_FILE" ]; then
     echo "    cp /your/backup/.env $REPO_DIR/.env"
     echo "    ./setup.sh"
     echo ""
-    echo "  Option B — Delete the existing database and start completely fresh."
-    echo "    WARNING: All existing database data will be permanently deleted."
+    echo "  Option B — Reset the local FlightConn database volume and start fresh."
+    echo "    WARNING: All existing local database data will be permanently deleted."
     echo ""
-    printf "    To reset, type exactly:  RESET FLIGHTCONN DB\n"
-    printf "    Or press Enter to abort: "
+    printf "  Reset the FlightConn database volume and start fresh?"
+    printf " This permanently deletes local database data. [y/N] "
     RESET_CHOICE=""
     read -r RESET_CHOICE < /dev/tty || true
     echo ""
 
-    if [ "$RESET_CHOICE" = "RESET FLIGHTCONN DB" ]; then
+    if [ "$RESET_CHOICE" = "y" ] || [ "$RESET_CHOICE" = "Y" ]; then
         echo "==> Stopping and removing existing containers..."
         docker stop flightconn-app flightconn-db 2>/dev/null || true
         docker rm   flightconn-app flightconn-db 2>/dev/null || true
@@ -90,7 +90,7 @@ if [ "$VOLUME_EXISTS" = "true" ] && [ ! -f "$ENV_FILE" ]; then
         VOLUME_EXISTS=false
     else
         echo "  Aborting. No data was changed."
-        echo "  Restore .env from a backup, or re-run and type RESET FLIGHTCONN DB to start fresh."
+        echo "  Restore .env from a backup, then re-run ./setup.sh"
         exit 1
     fi
 fi
