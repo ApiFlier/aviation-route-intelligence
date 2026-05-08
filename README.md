@@ -25,7 +25,7 @@ docker --version && docker compose version
 ### Part 2 — Clone and run
 
 ```bash
-git clone https://github.com/ApiFlier/FlightConnections.git ./flightconn && cd ./flightconn && chmod +x setup.sh && ./setup.sh
+git clone https://github.com/ApiFlier/aviation-route-intelligence.git ./flightconn && cd ./flightconn && chmod +x setup.sh && ./setup.sh
 ```
 
 `setup.sh` will:
