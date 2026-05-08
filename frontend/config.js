@@ -1,11 +1,10 @@
 // FlightConn Frontend Configuration
-// API URL - change this for different environments
 const CONFIG = {
-    // When using nginx proxy (production/docker)
+    // Docker / production: API is served from the same origin
     API_URL: '/api',
-    
-    // For direct API access (development), uncomment:
-    // API_URL: 'http://localhost:8083/api',
+
+    // Local development (Flask only, no Docker): uncomment and set your port
+    // API_URL: 'http://localhost:8082/api',
     
     // Map settings
     DEFAULT_CENTER: [39.8, -98.5],

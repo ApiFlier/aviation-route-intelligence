@@ -37,3 +37,4 @@ services:
 
 volumes:
   flightconn_mysql:
+    name: flightconn_mysql   # explicit name prevents compose from prepending the project directory

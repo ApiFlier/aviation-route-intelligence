@@ -47,7 +47,70 @@ next_open_port() {
     echo "$port"
 }
 
-# Generate/Update .env
+# ── Detect whether the persistent DB volume already exists ────────────
+VOLUME_EXISTS=false
+if docker volume inspect flightconn_mysql >/dev/null 2>&1; then
+    VOLUME_EXISTS=true
+fi
+
+# ── .env + volume mismatch: bail before touching anything ─────────────
+# The MySQL container was initialized with credentials stored in .env.
+# If .env is gone but the volume still exists, any new credentials will
+# be rejected by the running database — nothing will work.
+if [ "$VOLUME_EXISTS" = "true" ] && [ ! -f "$ENV_FILE" ]; then
+    echo ""
+    echo "============================================="
+    echo "  Cannot Proceed: .env Missing"
+    echo "============================================="
+    echo ""
+    echo "  An existing FlightConn database volume was found (flightconn_mysql)"
+    echo "  but .env is missing. The database was initialized with credentials"
+    echo "  that setup can no longer access."
+    echo ""
+    echo "  Option A — Restore the original .env and re-run:"
+    echo "    cp /your/backup/.env $REPO_DIR/.env"
+    echo "    ./setup.sh"
+    echo ""
+    echo "  Option B — Delete the existing database and start completely fresh."
+    echo "    WARNING: All existing database data will be permanently deleted."
+    echo ""
+    printf "    To reset, type exactly:  RESET FLIGHTCONN DB\n"
+    printf "    Or press Enter to abort: "
+    RESET_CHOICE=""
+    read -r RESET_CHOICE < /dev/tty || true
+    echo ""
+
+    if [ "$RESET_CHOICE" = "RESET FLIGHTCONN DB" ]; then
+        echo "==> Stopping and removing existing containers..."
+        docker stop flightconn-app flightconn-db 2>/dev/null || true
+        docker rm   flightconn-app flightconn-db 2>/dev/null || true
+        echo "==> Removing FlightConn database volume..."
+        docker volume rm flightconn_mysql
+        echo "    Volume removed. Proceeding with fresh install."
+        VOLUME_EXISTS=false
+    else
+        echo "  Aborting. No data was changed."
+        echo "  Restore .env from a backup, or re-run and type RESET FLIGHTCONN DB to start fresh."
+        exit 1
+    fi
+fi
+
+# ── Warn about an orphaned legacy volume (if present) ────────────────
+# Older setups without an explicit volume name created a project-prefixed
+# volume (e.g. flightconn_flightconn_mysql). It is no longer used and
+# can be removed when you are sure you no longer need it.
+LEGACY_VOL=$(docker volume ls --format '{{.Name}}' 2>/dev/null \
+    | grep -E '_flightconn_mysql$' \
+    | grep -v '^flightconn_mysql$' \
+    | head -1)
+if [ -n "$LEGACY_VOL" ]; then
+    echo ""
+    echo "  Note: Found an older FlightConn database volume: $LEGACY_VOL"
+    echo "  It is no longer used by this setup and can be removed when ready:"
+    echo "    docker volume rm $LEGACY_VOL"
+fi
+
+# ── Generate or update .env ───────────────────────────────────────────
 if [ ! -f "$ENV_FILE" ]; then
     echo "==> Generating .env with random credentials..."
 
@@ -65,28 +128,25 @@ EOF
     chmod 600 "$ENV_FILE"
     echo "    Created .env (APP_PORT=$APP_PORT)"
 else
-    echo "==> Updating .env for new architecture..."
+    echo "==> Checking .env..."
     # Source existing .env
     set -a
     source "$ENV_FILE"
     set +a
 
-    # Determine starting port for search
+    # Migrate any old per-service port variables and ensure APP_PORT is set
     START_PORT="${APP_PORT:-${FRONTEND_PORT:-8082}}"
-    
-    # Check if APP_PORT is missing or if we need to verify availability
     FINAL_PORT=$(next_open_port "$START_PORT")
-    
+
     if [ "$FINAL_PORT" != "$APP_PORT" ] || ! grep -q "APP_PORT=" "$ENV_FILE"; then
-        # Remove old PORT variables if they exist to keep it clean
         sed -i '/FRONTEND_PORT=/d' "$ENV_FILE"
         sed -i '/API_PORT=/d' "$ENV_FILE"
         sed -i '/APP_PORT=/d' "$ENV_FILE"
         echo "APP_PORT=$FINAL_PORT" >> "$ENV_FILE"
-        echo "    Updated .env (APP_PORT=$FINAL_PORT)"
+        echo "    Updated APP_PORT to $FINAL_PORT."
         APP_PORT=$FINAL_PORT
     else
-        echo "    .env is already up to date (APP_PORT=$APP_PORT)."
+        echo "    .env is up to date (APP_PORT=$APP_PORT)."
     fi
 fi
 
@@ -118,6 +178,30 @@ until [ "$(docker inspect --format='{{.State.Health.Status}}' flightconn-db 2>/d
     printf "    ...%ds elapsed\r" "$WAITED"
 done
 echo "    MySQL is healthy.                    "
+
+# ── Verify credentials before touching any data ───────────────────────
+# Guards against the edge case where .env was regenerated while an existing
+# volume still holds the original MySQL root password.
+echo ""
+echo "==> Verifying database credentials..."
+if ! docker exec \
+       -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
+       flightconn-db \
+       mysql -uroot -sNe "SELECT 1;" >/dev/null 2>&1; then
+    echo ""
+    echo "ERROR: Cannot authenticate with the database." >&2
+    echo "  The credentials in .env do not match the existing database volume." >&2
+    echo ""
+    echo "  This usually means .env was regenerated while the database volume" >&2
+    echo "  (flightconn_mysql) still held the original MySQL root password." >&2
+    echo ""
+    echo "  To fix:" >&2
+    echo "    docker compose down" >&2
+    echo "    docker volume rm flightconn_mysql" >&2
+    echo "    ./setup.sh" >&2
+    exit 1
+fi
+echo "    Credentials OK."
 
 # Check if database already has data
 HAS_DATA=$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" flightconn-db mysql -uroot flightconn -sNe "SELECT COUNT(*) FROM airports;" 2>/dev/null || echo "0")
@@ -206,3 +290,16 @@ echo "  ./restore.sh <file>  # Restore a DB backup"
 echo "  docker compose logs -f"
 echo "  docker compose down"
 echo ""
+
+# Offer to remove local source files (the running app and volumes are unaffected)
+printf "Delete local source files now? [y/N] "
+DEL_CHOICE=""
+read -r DEL_CHOICE < /dev/tty || true
+if [ "${DEL_CHOICE}" = "y" ] || [ "${DEL_CHOICE}" = "Y" ]; then
+    echo "==> Removing local source files..."
+    cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
+    rm -rf "$REPO_DIR"
+    echo "    Done. The running app and Docker volumes are preserved."
+else
+    echo "    Source files preserved."
+fi
