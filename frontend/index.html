@@ -202,6 +202,7 @@
         <div class="stats">
             <div class="stat-item"><i class="fas fa-route"></i> <span id="route-count">0</span> routes</div>
             <div class="stat-item"><i class="fas fa-map-marker-alt"></i> <span id="airport-count">0</span> airports</div>
+            <div class="stat-item"><a href="/opportunities/" style="color:#888;text-decoration:none;display:flex;align-items:center;gap:6px;" onmouseover="this.style.color='#00d9ff'" onmouseout="this.style.color='#888'"><i class="fas fa-chart-line" style="color:inherit"></i> Opportunities</a></div>
             <div class="stat-item"><a href="/career/" style="color:#888;text-decoration:none;display:flex;align-items:center;gap:6px;" onmouseover="this.style.color='#00d9ff'" onmouseout="this.style.color='#888'"><i class="fas fa-briefcase" style="color:inherit"></i> Career</a></div>
         </div>
     </div>
@@ -956,7 +957,14 @@
         }
 
         initMap();
-        loadInitialData();
+        const _dlParams = new URLSearchParams(location.search);
+        const _dlFrom = (_dlParams.get('from') || '').toUpperCase();
+        const _dlTo   = (_dlParams.get('to')   || '').toUpperCase();
+        const _dlApt  = (_dlParams.get('airport') || '').toUpperCase();
+        loadInitialData().then(() => {
+            if (_dlFrom && _dlTo) selectRoute(_dlFrom, _dlTo);
+            else if (_dlApt)      selectAirport(_dlApt);
+        });
     </script>
 </body>
 </html>

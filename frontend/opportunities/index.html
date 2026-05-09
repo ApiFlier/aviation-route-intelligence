@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Route Opportunity Finder</title>
+    <link rel="stylesheet" href="/fontAwesome/css/all.min.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        /* ── Header ───────────────────────────────────────────────── */
+        .app-header {
+            height: 56px;
+            background: #16213e;
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            gap: 20px;
+            border-bottom: 1px solid #0f3460;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .app-logo {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #00d9ff;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .app-logo:hover { color: #00c4e6; }
+        .app-nav {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+        }
+        .app-nav a {
+            color: #888;
+            text-decoration: none;
+            font-size: 0.85rem;
+            padding: 6px 12px;
+            border-radius: 5px;
+            transition: color 0.15s, background 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .app-nav a:hover { color: #eee; background: #0f3460; }
+        .app-nav a.active { color: #00d9ff; background: rgba(0,217,255,0.08); }
+
+        /* ── Page hero ────────────────────────────────────────────── */
+        .page-hero {
+            background: linear-gradient(180deg, #16213e 0%, #1a1a2e 100%);
+            padding: 28px 24px 20px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .page-hero h1 {
+            font-size: 1.6rem;
+            font-weight: 600;
+            color: #00d9ff;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .page-hero .subtitle {
+            color: #aaa;
+            font-size: 0.9rem;
+            max-width: 680px;
+            line-height: 1.55;
+            margin-bottom: 10px;
+        }
+        .page-hero .disclaimer {
+            font-size: 0.75rem;
+            color: #555;
+            border-left: 2px solid #0f3460;
+            padding-left: 10px;
+        }
+
+        /* ── Layout ───────────────────────────────────────────────── */
+        .page-body {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px 20px 40px;
+        }
+
+        /* ── Filter panel ─────────────────────────────────────────── */
+        .filter-panel {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 16px 18px;
+            margin-bottom: 20px;
+        }
+        .filter-panel-title {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #555;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .filter-panel-title i { color: #00d9ff; }
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .filter-group { display: flex; flex-direction: column; gap: 4px; }
+        .filter-group label {
+            font-size: 0.7rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .filter-group input,
+        .filter-group select {
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            border-radius: 5px;
+            color: #eee;
+            padding: 7px 10px;
+            font-size: 0.85rem;
+            outline: none;
+            width: 100%;
+        }
+        .filter-group input:focus,
+        .filter-group select:focus { border-color: #00d9ff; }
+        .filter-group input::placeholder { color: #444; }
+        .filter-group select option { background: #16213e; }
+        .filter-check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-top: 22px;
+            font-size: 0.85rem;
+            color: #aaa;
+            cursor: pointer;
+        }
+        .filter-check input[type="checkbox"] { accent-color: #00d9ff; width: 15px; height: 15px; cursor: pointer; }
+        .filter-actions { display: flex; gap: 8px; align-items: center; }
+        .btn-apply {
+            padding: 8px 20px;
+            background: #00d9ff;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 5px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-apply:hover { background: #00c4e6; }
+        .btn-reset {
+            padding: 8px 14px;
+            background: transparent;
+            border: 1px solid #0f3460;
+            color: #888;
+            border-radius: 5px;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        .btn-reset:hover { border-color: #555; color: #ccc; }
+
+        /* ── Results header ───────────────────────────────────────── */
+        .results-meta {
+            font-size: 0.8rem;
+            color: #555;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .results-meta span { color: #888; }
+
+        /* ── State panels ─────────────────────────────────────────── */
+        .state-box {
+            text-align: center;
+            padding: 48px 20px;
+            color: #555;
+        }
+        .state-box i { font-size: 2rem; display: block; margin-bottom: 12px; }
+        .state-box p { font-size: 0.9rem; }
+        .state-error { color: #f44336; }
+        .state-error i { color: #f44336; }
+        .state-error p { color: #f44336; }
+
+        /* ── Route card ───────────────────────────────────────────── */
+        .route-card {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 18px 20px;
+            margin-bottom: 14px;
+            transition: border-color 0.15s;
+        }
+        .route-card:hover { border-color: #1a4a7a; }
+
+        /* Card top: route pair left, score right */
+        .card-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+        .card-route-info { flex: 1; min-width: 0; }
+        .card-route-pair {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .card-route-pair .origin-code { color: #00d9ff; }
+        .card-route-pair .dest-code   { color: #00d9ff; }
+        .card-route-pair .arrow       { color: #444; font-size: 1rem; }
+        .card-airport-names {
+            font-size: 0.8rem;
+            color: #888;
+            margin-top: 3px;
+        }
+        .card-location {
+            font-size: 0.78rem;
+            color: #555;
+            margin-top: 2px;
+        }
+
+        /* Score section */
+        .card-score-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+            min-width: 100px;
+            text-align: center;
+        }
+        .score-ring {
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            border: 3px solid currentColor;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .score-conf {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .score-label {
+            font-size: 0.72rem;
+            color: #888;
+            max-width: 110px;
+            text-align: center;
+            line-height: 1.3;
+        }
+
+        /* Summary */
+        .card-summary {
+            font-size: 0.85rem;
+            color: #aaa;
+            line-height: 1.55;
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            background: rgba(0,0,0,0.15);
+            border-radius: 5px;
+            border-left: 2px solid #0f3460;
+        }
+
+        /* Metrics grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        @media (max-width: 600px) {
+            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+            .card-top { flex-direction: column-reverse; }
+            .card-score-section { flex-direction: row; align-items: center; min-width: 0; }
+        }
+        .metric-box {
+            background: #1a1a2e;
+            border-radius: 6px;
+            padding: 9px 10px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #eee;
+        }
+        .metric-label {
+            font-size: 0.62rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-top: 2px;
+        }
+        .metric-note {
+            font-size: 0.58rem;
+            color: #444;
+            margin-top: 2px;
+        }
+
+        /* Component score bars */
+        .comp-section {
+            margin-bottom: 14px;
+        }
+        .comp-section-title {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #555;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .comp-section-title i { color: #00d9ff; }
+        .comp-bars { display: flex; flex-direction: column; gap: 5px; }
+        .comp-row {
+            display: grid;
+            grid-template-columns: 120px 1fr 30px;
+            align-items: center;
+            gap: 8px;
+        }
+        .comp-label {
+            font-size: 0.75rem;
+            color: #888;
+            text-align: right;
+            white-space: nowrap;
+        }
+        .comp-track {
+            height: 8px;
+            background: #1a1a2e;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .comp-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.4s ease;
+        }
+        .comp-val {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-align: right;
+        }
+        .comp-row.penalty .comp-label { color: #666; }
+        .comp-row.penalty .comp-val   { color: #f44336; }
+
+        /* Expandable details */
+        .card-details { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+        details.detail-section {
+            border: 1px solid #0f3460;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        details.detail-section summary {
+            padding: 8px 12px;
+            font-size: 0.78rem;
+            color: #888;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            list-style: none;
+        }
+        details.detail-section summary::-webkit-details-marker { display: none; }
+        details.detail-section summary i.toggle-icon { font-size: 0.6rem; margin-left: auto; }
+        details.detail-section[open] summary { color: #ccc; background: rgba(255,255,255,0.02); }
+        details.detail-section[open] summary i.toggle-icon { transform: rotate(180deg); }
+        .detail-body {
+            padding: 10px 12px 12px;
+            background: rgba(0,0,0,0.1);
+        }
+        .detail-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .detail-list li {
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: #aaa;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .detail-list li::before { content: ''; }
+        .detail-list li i {
+            font-size: 0.65rem;
+            margin-top: 3px;
+            flex-shrink: 0;
+        }
+        .detail-list.reasons li i { color: #00d9ff; }
+        .detail-list.risks    li i { color: #ff9800; }
+        .detail-list.notes    li i { color: #555; }
+        .detail-list.notes    li   { color: #666; font-size: 0.75rem; }
+
+        /* Card actions */
+        .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn-map {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: transparent;
+            border: 1px solid #0f3460;
+            border-radius: 5px;
+            color: #888;
+            text-decoration: none;
+            font-size: 0.8rem;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .btn-map:hover { border-color: #00d9ff; color: #00d9ff; }
+
+        /* Spinner */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { display: inline-block; animation: spin 0.8s linear infinite; }
+    </style>
+</head>
+<body>
+
+<header class="app-header">
+    <a href="/" class="app-logo">
+        <i class="fas fa-plane-departure"></i>
+        FlightConn
+    </a>
+    <nav class="app-nav">
+        <a href="/"><i class="fas fa-map-marked-alt"></i> Route Map</a>
+        <a href="/opportunities/" class="active"><i class="fas fa-chart-line"></i> Route Opportunities</a>
+        <a href="/career/"><i class="fas fa-briefcase"></i> Airline Health</a>
+    </nav>
+</header>
+
+<div class="page-hero">
+    <h1><i class="fas fa-chart-line"></i> Route Opportunity Finder</h1>
+    <p class="subtitle">
+        Screen routes using public aviation data signals including demand, fares, competition,
+        service levels, reliability, and carrier context.
+        Scores are directional indicators based on publicly available U.S. aviation datasets.
+    </p>
+    <p class="disclaimer">
+        <i class="fas fa-info-circle"></i>
+        Scores are directional public-data indicators. They do not estimate route-level financial
+        outcomes or guarantee route success. Use as a starting point for further research only.
+    </p>
+</div>
+
+<div class="page-body">
+
+    <!-- Filter panel -->
+    <div class="filter-panel">
+        <div class="filter-panel-title">
+            <i class="fas fa-sliders-h"></i> Filters
+        </div>
+        <div class="filter-grid">
+            <div class="filter-group">
+                <label for="f-origin">Origin</label>
+                <input id="f-origin" class="filter-input" type="text" maxlength="3"
+                       placeholder="e.g. ATL" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="filter-group">
+                <label for="f-origin-state">Origin State</label>
+                <input id="f-origin-state" class="filter-input" type="text" maxlength="2"
+                       placeholder="e.g. PA" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="filter-group">
+                <label for="f-dest-state">Dest State</label>
+                <input id="f-dest-state" class="filter-input" type="text" maxlength="2"
+                       placeholder="e.g. TX" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="filter-group">
+                <label for="f-min-dist">Min Miles</label>
+                <input id="f-min-dist" class="filter-input" type="number" min="0"
+                       placeholder="e.g. 200">
+            </div>
+            <div class="filter-group">
+                <label for="f-max-dist">Max Miles</label>
+                <input id="f-max-dist" class="filter-input" type="number" min="1"
+                       placeholder="e.g. 1500">
+            </div>
+            <div class="filter-group">
+                <label for="f-min-pax">Min Passengers</label>
+                <input id="f-min-pax" class="filter-input" type="number" min="0"
+                       placeholder="e.g. 50000">
+            </div>
+            <div class="filter-group">
+                <label for="f-max-carriers">Max Airlines</label>
+                <input id="f-max-carriers" class="filter-input" type="number" min="1"
+                       placeholder="e.g. 2">
+            </div>
+            <div class="filter-group">
+                <label for="f-sort">Sort By</label>
+                <select id="f-sort">
+                    <option value="opportunity">Overall Opportunity</option>
+                    <option value="demand">Demand</option>
+                    <option value="fare_strength">Fare Strength</option>
+                    <option value="limited_competition">Limited Competition</option>
+                    <option value="service_pressure">Service Pressure</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="f-limit">Results</label>
+                <select id="f-limit">
+                    <option value="10">10</option>
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
+            <div class="filter-check">
+                <input type="checkbox" id="f-domestic" checked>
+                <label for="f-domestic" style="cursor:pointer;color:#aaa;">Domestic Only</label>
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button class="btn-apply" onclick="loadResults()">
+                <i class="fas fa-search"></i> Apply Filters
+            </button>
+            <button class="btn-reset" onclick="resetFilters()">
+                <i class="fas fa-undo"></i> Reset
+            </button>
+        </div>
+    </div>
+
+    <!-- Results area -->
+    <div id="results-meta" class="results-meta" style="display:none;"></div>
+    <div id="state-box" class="state-box" style="display:none;"></div>
+    <div id="results-grid"></div>
+
+</div>
+
+<script src="/config.js"></script>
+<script src="/js/api.js"></script>
+<script>
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function esc(v) {
+    if (v == null) return '';
+    return String(v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function fmt(n) {
+    if (n == null) return '—';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+    return Number(n).toLocaleString();
+}
+
+function fmtFare(n)  { return n == null ? '—' : '$' + Number(n).toFixed(0); }
+function fmtPct(n)   { return n == null ? '—' : Number(n).toFixed(1) + '%'; }
+function fmtMi(n)    { return n == null ? '—' : Number(n).toLocaleString() + ' mi'; }
+
+function scoreColor(s) {
+    if (s >= 70) return '#00ff88';
+    if (s >= 50) return '#ffeb3b';
+    if (s >= 30) return '#ff9800';
+    return '#f44336';
+}
+
+function confLabel(c) {
+    if (c === 'high')   return 'High Confidence';
+    if (c === 'medium') return 'Med Confidence';
+    return 'Low Confidence';
+}
+function confColor(c) {
+    if (c === 'high')   return '#00ff88';
+    if (c === 'medium') return '#ffeb3b';
+    return '#ff9800';
+}
+
+// ── Fetch (local — captures API validation error bodies) ──────────────────────
+
+async function fetchOpportunities(params) {
+    const p = new URLSearchParams();
+    if (params.origin)               p.set('origin',         params.origin);
+    if (params.origin_state)         p.set('origin_state',   params.origin_state);
+    if (params.dest_state)           p.set('dest_state',     params.dest_state);
+    if (params.min_distance != null) p.set('min_distance',   params.min_distance);
+    if (params.max_distance != null) p.set('max_distance',   params.max_distance);
+    if (params.min_passengers != null) p.set('min_passengers', params.min_passengers);
+    if (params.max_carriers != null) p.set('max_carriers',   params.max_carriers);
+    if (!params.domestic_only)       p.set('domestic_only',  'false');
+    p.set('sort',  params.sort  || 'opportunity');
+    p.set('limit', params.limit || 25);
+
+    const res = await fetch(`${CONFIG.API_URL}/routes/opportunities?${p}`);
+    const data = await res.json();
+    if (!res.ok) {
+        const msg = data.details ? data.details.join(' ') : (data.error || `HTTP ${res.status}`);
+        throw new Error(msg);
+    }
+    return data;
+}
+
+// ── Filter helpers ────────────────────────────────────────────────────────────
+
+function getFilterParams() {
+    const s = (id) => document.getElementById(id).value.trim().toUpperCase();
+    const n = (id) => { const v = document.getElementById(id).value.trim(); return v === '' ? null : parseInt(v, 10); };
+    return {
+        origin:         s('f-origin')       || null,
+        origin_state:   s('f-origin-state') || null,
+        dest_state:     s('f-dest-state')   || null,
+        min_distance:   n('f-min-dist'),
+        max_distance:   n('f-max-dist'),
+        min_passengers: n('f-min-pax'),
+        max_carriers:   n('f-max-carriers'),
+        domestic_only:  document.getElementById('f-domestic').checked,
+        sort:           document.getElementById('f-sort').value,
+        limit:          parseInt(document.getElementById('f-limit').value, 10),
+    };
+}
+
+function resetFilters() {
+    document.getElementById('f-origin').value       = '';
+    document.getElementById('f-origin-state').value = '';
+    document.getElementById('f-dest-state').value   = '';
+    document.getElementById('f-min-dist').value     = '';
+    document.getElementById('f-max-dist').value     = '';
+    document.getElementById('f-min-pax').value      = '';
+    document.getElementById('f-max-carriers').value = '';
+    document.getElementById('f-domestic').checked   = true;
+    document.getElementById('f-sort').value         = 'opportunity';
+    document.getElementById('f-limit').value        = '25';
+    loadResults();
+}
+
+// Trigger on Enter in any filter input
+document.querySelectorAll('.filter-input').forEach(el => {
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') loadResults(); });
+});
+
+// ── Load results ──────────────────────────────────────────────────────────────
+
+async function loadResults() {
+    setStateBox(null);
+    document.getElementById('results-meta').style.display = 'none';
+    document.getElementById('results-grid').innerHTML = '';
+
+    setStateBox('loading', '<i class="fas fa-circle-notch spinner"></i>', 'Loading opportunities…');
+
+    try {
+        const params = getFilterParams();
+        const data   = await fetchOpportunities(params);
+        const routes = data.routes || [];
+        const meta   = data.meta  || {};
+
+        setStateBox(null);
+
+        if (routes.length === 0) {
+            setStateBox('empty',
+                '<i class="fas fa-search"></i>',
+                'No routes match these filters. Try loosening the criteria.'
+            );
+            return;
+        }
+
+        renderMeta(routes.length, meta);
+        renderResults(routes);
+    } catch (err) {
+        setStateBox('error',
+            '<i class="fas fa-exclamation-triangle"></i>',
+            esc(err.message)
+        );
+    }
+}
+
+function setStateBox(type, iconHtml, msgHtml) {
+    const el = document.getElementById('state-box');
+    if (!type) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.className = 'state-box' + (type === 'error' ? ' state-error' : '');
+    el.innerHTML = `${iconHtml || ''}<p>${msgHtml || ''}</p>`;
+    el.style.display = 'block';
+}
+
+function renderMeta(count, meta) {
+    const sortLabels = {
+        opportunity:        'Overall Opportunity',
+        demand:             'Demand',
+        fare_strength:      'Fare Strength',
+        limited_competition:'Limited Competition',
+        service_pressure:   'Service Pressure',
+    };
+    const sortLabel = sortLabels[meta.sort] || esc(meta.sort);
+    const domText   = meta.domestic_only ? ' · domestic routes' : '';
+    const el = document.getElementById('results-meta');
+    el.innerHTML = `<span>${count}</span> route${count !== 1 ? 's' : ''} · sorted by <span>${sortLabel}</span>${domText}`;
+    el.style.display = 'flex';
+}
+
+// ── Card rendering ────────────────────────────────────────────────────────────
+
+const COMP_CONFIG = [
+    { key: 'demand',          label: 'Demand',          color: '#00d9ff' },
+    { key: 'fare_strength',   label: 'Fare Strength',   color: '#00ff88' },
+    { key: 'competition_gap', label: 'Competition',     color: '#9c27b0' },
+    { key: 'service_gap',     label: 'Service Pressure',color: '#ff9800' },
+    { key: 'distance_fit',    label: 'Distance Fit',    color: '#ffeb3b' },
+    { key: 'carrier_context', label: 'Carrier Context', color: '#4cc9f0' },
+];
+
+function renderResults(routes) {
+    const grid = document.getElementById('results-grid');
+    routes.forEach((r, i) => {
+        const card = document.createElement('div');
+        card.className = 'route-card';
+        card.innerHTML = buildCard(r, i);
+        grid.appendChild(card);
+    });
+}
+
+function buildCard(r, idx) {
+    const score     = r.opportunity_score ?? 0;
+    const sColor    = scoreColor(score);
+    const conf      = r.confidence || 'low';
+    const m         = r.metrics    || {};
+    const comp      = r.components || {};
+    const reasons   = r.reasons    || [];
+    const risks     = r.risks      || [];
+    const dataNotes = r.data_notes || [];
+
+    const mapLink = `/?from=${encodeURIComponent(r.origin || '')}&to=${encodeURIComponent(r.destination || '')}`;
+
+    // Fare note: shown below avg fare value
+    const fareNote = m.fare_signal_note
+        ? `<div class="metric-note">${esc(m.fare_signal_note.replace('— not', '·'))}</div>`
+        : '<div class="metric-note">No survey fare data</div>';
+
+    const domCarrier = m.dominant_carrier
+        ? `${esc(m.dominant_carrier)}${m.dominant_carrier_share != null ? ' (' + Math.round(m.dominant_carrier_share * 100) + '%)' : ''}`
+        : '—';
+
+    // ── Top section ──────────────────────────────────────────────────
+    let html = `<div class="card-top">`;
+
+    // Route info
+    html += `<div class="card-route-info">`;
+    html += `<div class="card-route-pair">`;
+    html += `<span class="origin-code">${esc(r.origin)}</span>`;
+    html += `<span class="arrow"><i class="fas fa-arrow-right"></i></span>`;
+    html += `<span class="dest-code">${esc(r.destination)}</span>`;
+    html += `</div>`;
+    html += `<div class="card-airport-names">${esc(r.origin_name)} → ${esc(r.destination_name)}</div>`;
+    const loc = [r.origin_city, r.destination_city].filter(Boolean).join(' → ');
+    const dist = r.distance ? ` · ${r.distance.toLocaleString()} mi` : '';
+    html += `<div class="card-location">${esc(loc)}${dist}</div>`;
+    html += `</div>`;
+
+    // Score ring
+    html += `<div class="card-score-section">`;
+    html += `<div class="score-ring" style="color:${sColor};border-color:${sColor}">${score}</div>`;
+    html += `<div class="score-conf" style="color:${confColor(conf)}">${esc(confLabel(conf))}</div>`;
+    html += `<div class="score-label">${esc(r.label || '')}</div>`;
+    html += `</div>`;
+
+    html += `</div>`; // .card-top
+
+    // ── Summary ──────────────────────────────────────────────────────
+    if (r.summary) {
+        html += `<div class="card-summary">${esc(r.summary)}</div>`;
+    }
+
+    // ── Metrics grid ─────────────────────────────────────────────────
+    html += `<div class="metrics-grid">`;
+
+    html += `<div class="metric-box">`;
+    html += `<div class="metric-value">${fmt(m.passengers)}</div>`;
+    html += `<div class="metric-label">Passengers</div>`;
+    html += `</div>`;
+
+    html += `<div class="metric-box">`;
+    html += `<div class="metric-value">${fmtFare(m.avg_fare)}</div>`;
+    html += `<div class="metric-label">Avg Fare</div>`;
+    html += fareNote;
+    html += `</div>`;
+
+    html += `<div class="metric-box">`;
+    html += `<div class="metric-value">${m.avg_fare_per_mile != null ? '$' + Number(m.avg_fare_per_mile).toFixed(2) : '—'}</div>`;
+    html += `<div class="metric-label">$/Mile</div>`;
+    html += `</div>`;
+
+    html += `<div class="metric-box">`;
+    html += `<div class="metric-value">${m.carrier_count ?? '—'}</div>`;
+    html += `<div class="metric-label">Airlines</div>`;
+    html += `</div>`;
+
+    html += `<div class="metric-box">`;
+    html += `<div class="metric-value">${domCarrier}</div>`;
+    html += `<div class="metric-label">Lead Carrier</div>`;
+    html += `</div>`;
+
+    html += `<div class="metric-box">`;
+    html += `<div class="metric-value">${m.load_factor != null ? Math.round(m.load_factor * 100) + '%' : '—'}</div>`;
+    html += `<div class="metric-label">Load Factor</div>`;
+    html += `</div>`;
+
+    html += `<div class="metric-box">`;
+    html += `<div class="metric-value">${m.ontime_pct != null ? m.ontime_pct + '%' : '—'}</div>`;
+    html += `<div class="metric-label">On-Time</div>`;
+    html += `</div>`;
+
+    html += `<div class="metric-box">`;
+    html += `<div class="metric-value">${fmtMi(r.distance)}</div>`;
+    html += `<div class="metric-label">Distance</div>`;
+    html += `</div>`;
+
+    html += `</div>`; // .metrics-grid
+
+    // ── Score breakdown bars ──────────────────────────────────────────
+    html += `<div class="comp-section">`;
+    html += `<div class="comp-section-title"><i class="fas fa-chart-bar"></i> Score Breakdown</div>`;
+    html += `<div class="comp-bars">`;
+    for (const { key, label, color } of COMP_CONFIG) {
+        const val = Math.round(comp[key] ?? 0);
+        html += `<div class="comp-row">`;
+        html += `<span class="comp-label">${label}</span>`;
+        html += `<div class="comp-track"><div class="comp-fill" style="width:${val}%;background:${color}"></div></div>`;
+        html += `<span class="comp-val" style="color:${color}">${val}</span>`;
+        html += `</div>`;
+    }
+    // Risk penalty row (stored as negative; display magnitude in red)
+    const penalty = comp.risk_penalty ?? 0;
+    const penMag  = Math.abs(penalty);
+    html += `<div class="comp-row penalty">`;
+    html += `<span class="comp-label">Risk Penalty</span>`;
+    html += `<div class="comp-track"><div class="comp-fill" style="width:${penMag}%;background:#f44336"></div></div>`;
+    html += `<span class="comp-val">${penalty > 0 ? '-' : ''}${penMag}</span>`;
+    html += `</div>`;
+    html += `</div></div>`; // .comp-bars .comp-section
+
+    // ── Expandable details ────────────────────────────────────────────
+    html += `<div class="card-details">`;
+
+    if (reasons.length > 0) {
+        html += `<details class="detail-section" open>`;
+        html += `<summary><i class="fas fa-check-circle" style="color:#00d9ff"></i> Why this route signals opportunity (${reasons.length})<i class="fas fa-chevron-down toggle-icon"></i></summary>`;
+        html += `<div class="detail-body"><ul class="detail-list reasons">`;
+        reasons.forEach(r2 => {
+            html += `<li><i class="fas fa-circle"></i>${esc(r2)}</li>`;
+        });
+        html += `</ul></div></details>`;
+    }
+
+    if (risks.length > 0) {
+        html += `<details class="detail-section">`;
+        html += `<summary><i class="fas fa-exclamation-circle" style="color:#ff9800"></i> Risks to consider (${risks.length})<i class="fas fa-chevron-down toggle-icon"></i></summary>`;
+        html += `<div class="detail-body"><ul class="detail-list risks">`;
+        risks.forEach(risk => {
+            html += `<li><i class="fas fa-circle"></i>${esc(risk)}</li>`;
+        });
+        html += `</ul></div></details>`;
+    }
+
+    if (dataNotes.length > 0) {
+        html += `<details class="detail-section">`;
+        html += `<summary><i class="fas fa-database" style="color:#555"></i> Data notes (${dataNotes.length})<i class="fas fa-chevron-down toggle-icon"></i></summary>`;
+        html += `<div class="detail-body"><ul class="detail-list notes">`;
+        dataNotes.forEach(note => {
+            html += `<li><i class="fas fa-info-circle"></i>${esc(note)}</li>`;
+        });
+        html += `</ul></div></details>`;
+    }
+
+    html += `</div>`; // .card-details
+
+    // ── Actions ───────────────────────────────────────────────────────
+    html += `<div class="card-actions">`;
+    html += `<a href="${esc(mapLink)}" class="btn-map">`;
+    html += `<i class="fas fa-map-marked-alt"></i> View ${esc(r.origin)}–${esc(r.destination)} on Route Map`;
+    html += `</a>`;
+    html += `</div>`;
+
+    return html;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+loadResults();
+</script>
+</body>
+</html>

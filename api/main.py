@@ -37,6 +37,13 @@ def serve_career():
     return send_from_directory(os.path.join(app.static_folder, 'career'), 'index.html')
 
 
+@app.route('/opportunities/')
+@app.route('/opportunities')
+def serve_opportunities():
+    """Serve the route opportunity finder page."""
+    return send_from_directory(os.path.join(app.static_folder, 'opportunities'), 'index.html')
+
+
 @app.route('/api')
 def api_index():
     """API info endpoint."""

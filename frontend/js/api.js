@@ -62,5 +62,32 @@ const API = (() => {
         getAircraft({ limit = 500 } = {}) {
             return _get(`/aircraft?limit=${limit}`);
         },
+
+        // ── Route Opportunities ───────────────────────────────────
+        getOpportunities({
+            origin         = null,
+            origin_state   = null,
+            dest_state     = null,
+            min_distance   = null,
+            max_distance   = null,
+            min_passengers = null,
+            max_carriers   = null,
+            domestic_only  = true,
+            sort           = 'opportunity',
+            limit          = 25,
+        } = {}) {
+            const p = new URLSearchParams();
+            if (origin)                 p.set('origin', origin);
+            if (origin_state)           p.set('origin_state', origin_state);
+            if (dest_state)             p.set('dest_state', dest_state);
+            if (min_distance != null)   p.set('min_distance', min_distance);
+            if (max_distance != null)   p.set('max_distance', max_distance);
+            if (min_passengers != null) p.set('min_passengers', min_passengers);
+            if (max_carriers != null)   p.set('max_carriers', max_carriers);
+            if (!domestic_only)         p.set('domestic_only', 'false');
+            p.set('sort', sort);
+            p.set('limit', limit);
+            return _get(`/routes/opportunities?${p}`);
+        },
     };
 })();
