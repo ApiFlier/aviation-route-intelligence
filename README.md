@@ -34,7 +34,7 @@ FlightConn is a route and airline intelligence tool for exploring airline routes
 
 **Route Opportunity Finder** (`/opportunities/`) — A ranked, filterable view of existing routes scored on public-data signals: passenger demand, historical fare levels, competition, seat utilization, reliability, and carrier context. Useful for quickly surfacing routes that may deserve deeper review. Scores are directional indicators, not profitability estimates.
 
-**Airline Health Dashboard** (`/career/`) — A multi-year view of every major US carrier's financial health, workforce composition, role-level compensation, fleet size, hub rankings, and route network trends — derived from BTS Form 41 filings.
+**Airline Health** (`/airline-health/`) — Carrier-level context using public financial, fleet, network, employee, and operating indicators. Helps users compare airline stability across major US carriers. It does not predict job security, route profitability, or future airline performance. Also reachable at `/career/`.
 
 ---
 
@@ -139,7 +139,9 @@ Risk penalties are applied for missing data: no fare coverage, unknown distance,
 
 ## Airline Health Module
 
-Available at `/career/`, the health dashboard shows every carrier that has both BTS financial and employee filings. Cards display a 0–100 health score, employee count, quarterly compensation, and an on-time performance bar.
+Available at `/airline-health/` (also `/career/` for backward compatibility), the Airline Health dashboard shows every carrier that has both BTS financial and employee filings. It provides carrier-level context using public financial, fleet, network, employee, and operating indicators. Carrier health indicators are system-level signals and do not predict job security, route profitability, or future airline performance.
+
+Cards display a 0–100 health score, employee count, quarterly compensation, and an on-time performance bar.
 
 Clicking a carrier opens a tabbed detail view:
 

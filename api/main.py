@@ -32,8 +32,10 @@ def serve_index():
 
 @app.route('/career/')
 @app.route('/career')
+@app.route('/airline-health/')
+@app.route('/airline-health')
 def serve_career():
-    """Serve the career page."""
+    """Serve the airline health page (also reachable at /career/ for backward compatibility)."""
     return send_from_directory(os.path.join(app.static_folder, 'career'), 'index.html')
 
 
