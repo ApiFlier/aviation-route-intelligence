@@ -1,6 +1,6 @@
 # FlightConn
 
-A self-hosted airline intelligence dashboard built from Bureau of Transportation Statistics (BTS) public datasets. Covers route maps, carrier analysis, fare trends, on-time performance, and airline financial health — all running locally in Docker.
+A self-hosted airline route and intelligence tool built from Bureau of Transportation Statistics (BTS) public datasets. Covers route exploration, carrier analysis, fare trends, on-time performance, airline financial health, and a route opportunity screening tool — all running locally in Docker.
 
 ---
 
@@ -13,21 +13,26 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-`setup.sh`:
-- Generates `.env` automatically with random credentials (no manual config needed)
+`setup.sh` handles everything automatically:
+- Generates `.env` with random credentials (no manual config needed)
 - Builds Docker containers (`flightconn-app`, `flightconn-db`)
 - Creates or reuses the Docker-managed persistent volume `flightconn_mysql`
 - Finds an available host port automatically (starting at 8082) and saves it to `.env`
 - Seeds the database from `api/Data/db_backup.sql.gz` on first run
-- Starts the app and prints the final URL
+- Verifies all key tables and runs a live health check
+- **Prints the local URL** when the app is ready
+
+No external API keys or network access required at runtime.
 
 ---
 
 ## What FlightConn Does
 
-FlightConn is an airline route intelligence platform with two integrated modules:
+FlightConn is a route and airline intelligence tool for exploring airline routes, fares, service patterns, carrier presence, and airline health using public aviation datasets. It ships as three integrated views:
 
-**Route Intelligence Map** — An interactive map of the US aviation network. Search any airport to see its routes, carriers, passenger volumes, freight data, quarterly fare trends, and per-carrier on-time performance. Drill into a specific carrier on a route for delay cause breakdowns, aircraft types, and typical flight schedule tiles.
+**Route Intelligence Map** (`/`) — An interactive map of the US aviation network. Search any airport to see its routes, carriers, passenger volumes, freight data, quarterly fare trends, and per-carrier on-time performance. Drill into a specific carrier on a route for delay cause breakdowns, aircraft types, and typical flight schedule tiles.
+
+**Route Opportunity Finder** (`/opportunities/`) — A ranked, filterable view of existing routes scored on public-data signals: passenger demand, historical fare levels, competition, seat utilization, reliability, and carrier context. Useful for quickly surfacing routes that may deserve deeper review. Scores are directional indicators, not profitability estimates.
 
 **Airline Health Dashboard** (`/career/`) — A multi-year view of every major US carrier's financial health, workforce composition, role-level compensation, fleet size, hub rankings, and route network trends — derived from BTS Form 41 filings.
 
@@ -35,11 +40,21 @@ FlightConn is an airline route intelligence platform with two integrated modules
 
 ## Key Features
 
+**Route Intelligence**
 - Interactive airport and route map with 2,500+ US airports and layered satellite/street basemaps
 - Route drill-down: passengers, freight, seats, load factor, and carrier market share
 - Quarterly fare analysis from BTS DB1B data with cheapest/peak quarter highlights
 - Per-carrier on-time performance with delay cause breakdowns (carrier, weather, NAS, security)
 - Typical flight schedule tiles derived from historical BTS on-time records
+
+**Route Opportunity Finder**
+- Composite route opportunity score (0–100) built from six public-data components
+- Filter by origin airport, origin/destination state, distance, passenger volume, and carrier count
+- Component breakdown: demand, fare strength, competition gap, service pressure, distance fit, carrier context
+- Per-route reasons, risks, confidence label, and data-source notes
+- `GET /api/routes/opportunities` endpoint with five sort modes and full input validation
+
+**Airline Health Dashboard**
 - Airline health scoring based on equity position and operational performance
 - Workforce breakdown by role: pilots, flight attendants, maintenance, management, and more
 - Annual compensation per role group derived from Form 41 P-6 salary data
@@ -57,7 +72,7 @@ Clicking a route shows:
 - Annual passenger and freight totals, flight count, seats, and load factor
 - Airline breakdown with on-time badge and latest average fare
 - Quarterly fare grid (best/peak/current quarter highlighted)
-- A "This Month" fare tip based on historical BTS data
+- A "This Month" fare context note based on historical BTS data
 
 Clicking a carrier on that route shows:
 - Scheduled vs. performed flights, cancellation rate
@@ -65,6 +80,60 @@ Clicking a carrier on that route shows:
 - Delay cause bar chart (carrier / weather / NAS / security / late aircraft)
 - Aircraft types flown with departure counts
 - Typical weekly schedule with per-flight average delay
+
+---
+
+## Route Opportunity Finder
+
+Available at `/opportunities/`, the Route Opportunity Finder ranks existing served routes using public-data signals already in the database. It is designed to help users quickly identify routes that may deserve deeper review based on historical demand, fare, competition, capacity, reliability, and carrier-context indicators.
+
+### How scoring works
+
+Each route receives a composite opportunity score (0–100) built from six components:
+
+| Component | Weight | Signal |
+|-----------|--------|--------|
+| Demand | 30% | Annual passenger volume (T-100 traffic records) |
+| Fare Strength | 20% | Passenger-weighted average fares (DB1B survey data) |
+| Competition Gap | 20% | Carrier count and dominant-carrier share (T-100) |
+| Service Pressure | 15% | Seat utilization and cancellation rate |
+| Distance Fit | 10% | Route distance relative to the domestic sweet spot |
+| Carrier Context | 5% | Whether the dominant carrier files BTS Form 41 reports |
+
+Risk penalties are applied for missing data: no fare coverage, unknown distance, or very low passenger volume.
+
+### What the API returns
+
+`GET /api/routes/opportunities` returns a ranked list. Each result includes:
+- Opportunity score (0–100), confidence label, and category label
+- Scored component breakdown
+- Key metrics: passengers, average fare, load factor, on-time %, carrier count, dominant carrier
+- Reasons: what is driving the score up
+- Risks: what to watch out for
+- Data notes: source attribution and per-route caveats
+
+### Filters
+
+| Parameter | Description |
+|-----------|-------------|
+| `origin` | Filter by origin airport (IATA code) |
+| `origin_state` | Filter by origin state (2-letter US code) |
+| `dest_state` | Filter by destination state |
+| `min_distance` / `max_distance` | Distance range in miles |
+| `min_passengers` | Minimum annual passenger volume |
+| `max_carriers` | Maximum number of operating carriers |
+| `domestic_only` | Default `true`; DB1B fare coverage is US domestic |
+| `sort` | `opportunity`, `demand`, `fare_strength`, `limited_competition`, `service_pressure` |
+| `limit` | Number of results, default 25, max 100 |
+
+### Scope and limitations
+
+- **Scores are directional indicators, not profitability estimates.** Public datasets cannot confirm the financial viability of any specific route.
+- **Fare signals are historical.** The fare component uses passenger-weighted averages from the DB1B Origin-Destination Survey (a 10% itinerary sample). These are not live ticket prices or current cost estimates.
+- **Carrier financial data is carrier-level, not route-level.** The carrier context component uses Form 41 filing status as a proxy for established scheduled service, not as a route-level financial assessment.
+- **Phase 1 scope: existing served routes only.** Unserved or hypothetical market discovery is not included in the current version.
+- **International routes may have lower confidence.** DB1B fare coverage is US domestic. Routes with international endpoints score the fare component at zero and receive a risk note.
+- **Not an official recommendation.** This tool does not represent official airline planning, FAA, dispatch, or operational guidance of any kind.
 
 ---
 
@@ -97,7 +166,7 @@ Flask serves the frontend as static files and exposes a REST API at `/api`. All 
 
 ## Tech Stack
 
-- **Backend:** Python 3.11, Flask 3.0, mysqlclient, flask-cors
+- **Backend:** Python 3.11, Flask 3.0, mysqlclient, flask-cors, gunicorn
 - **Database:** MySQL 8.0
 - **Frontend:** Vanilla JavaScript, Leaflet.js (interactive maps), Font Awesome (icons)
 - **Infrastructure:** Docker, Docker Compose, Docker named volumes
@@ -107,20 +176,22 @@ Flask serves the frontend as static files and exposes a REST API at `/api`. All 
 
 ## Data Sources
 
-All data is sourced from the [Bureau of Transportation Statistics (BTS)](https://www.transtats.bts.gov/), U.S. Department of Transportation.
+All data is sourced from publicly available U.S. aviation datasets, primarily the [Bureau of Transportation Statistics (BTS)](https://www.transtats.bts.gov/), U.S. Department of Transportation.
+
+Source families include historical route traffic records, fare survey data, capacity and passenger records, schedule reliability records, and carrier financial reporting data.
 
 | Dataset | Used For |
 |---------|----------|
 | T-100 Segment Data | Route-level passengers, freight, flights, seats, aircraft types |
 | T-100 Market Data | Carrier route network size and hub rankings |
 | Marketing Carrier On-Time Performance | Per-flight on-time, delay, and cancellation records |
-| DB1B Origin-Destination Survey | Quarterly average fares by route and carrier |
+| DB1B Origin-Destination Survey | Quarterly average fares by route and carrier (10% itinerary sample) |
 | Form 41 Schedule P-6 | Quarterly salary and benefits by employee group |
 | Form 41 Schedule B-1 | Quarterly balance sheet: assets, debt, equity, cash |
 | Form 41 Schedule P-10 | Annual employee headcount by role |
 | Form 41 Schedule B-43 | Annual active aircraft fleet counts |
 
-The bundled database (`api/Data/db_backup.sql.gz`) contains pre-processed data derived from these public BTS sources.
+The bundled database (`api/Data/db_backup.sql.gz`) contains pre-processed data derived from these public BTS sources. The raw source CSV files are not required at runtime and are not committed to the repository.
 
 ---
 
@@ -131,6 +202,17 @@ The bundled database (`api/Data/db_backup.sql.gz`) contains pre-processed data d
 - `setup.sh` seeds the database from the bundled backup only when the database is empty.
 - Source files are only needed for rebuilding (`./update.sh`) or re-running `setup.sh`.
 - **Never run `docker compose down -v`** unless you intentionally want to wipe all data.
+
+---
+
+## Deployment Notes
+
+- **Docker-based setup.** The app runs in two containers (`flightconn-app`, `flightconn-db`) managed by Docker Compose. No bind-mounted source code is required in production — all application files are baked into the image at build time.
+- **Persistent database state.** Data lives in a Docker named volume (`flightconn_mysql`) and survives container restarts and rebuilds.
+- **Raw source data is not required at runtime.** The local `api/Data/faa-data/` directory contains raw CSV source files used for the initial database import. These files are not needed once the database is seeded, are excluded from Docker builds via `.dockerignore`, and should not be committed to the repository.
+- **Port auto-discovery.** `setup.sh` is idempotent: re-running it updates the port if needed and rebuilds containers without wiping data. Port discovery starts at 8082 and increments until a free port is found.
+- **Remote access.** For remote access, replace `localhost` in the printed URL with your server's IP or hostname.
+- At the end of setup, `setup.sh` offers to delete local source files. Choosing yes removes only the source directory — the running app and Docker volumes are unaffected.
 
 ---
 
@@ -156,33 +238,34 @@ The app does not include an automated test suite. Manual validation after setup:
 curl http://localhost:<PORT>/health
 curl http://localhost:<PORT>/api/stats
 curl http://localhost:<PORT>/api/airports?limit=5
+curl http://localhost:<PORT>/api/routes/opportunities?limit=3
 ```
 
 `setup.sh` performs row-count verification on all key tables and a live API health check before printing the final URL.
 
 ---
 
-## Deployment Notes
-
-- `setup.sh` is idempotent: re-running it on an existing installation updates the port if needed and rebuilds containers without wiping data.
-- Port auto-discovery starts at 8082 and increments until a free port is found.
-- The app listens on `0.0.0.0:8080` inside the container; the host port is set by `APP_PORT` in `.env`.
-- For remote access, replace `localhost` in the printed URL with your server's IP or hostname.
-- At the end of setup, `setup.sh` offers to delete local source files. Choosing yes removes only the source directory — the running app and Docker volumes are unaffected.
-
----
-
 ## Known Limitations
 
+**General**
 - BTS coverage is primarily U.S. domestic and international service from large certified air carriers. Smaller regional operators may have incomplete financial or on-time records.
 - Fare data reflects BTS DB1B quarterly averages, not real-time pricing. Check airline sites for current fares.
-- The app runs a single Flask process and is not designed for high-concurrency production deployment.
+- The app runs a single gunicorn process and is not designed for high-concurrency production deployment.
 - On-time performance data coverage varies by carrier and year.
+
+**Route Opportunity Finder**
+- Scores are directional public-data indicators, not route profitability estimates. Public datasets cannot confirm the financial viability of any specific route.
+- Fare signals are historical survey-based indicators derived from the DB1B Origin-Destination Survey. They are not live ticket prices or exact current cost estimates.
+- Carrier financial data is reported at the carrier level, not the route level. The carrier context component does not assess route-level financials.
+- The current version scores existing served routes only. Unserved or hypothetical market discovery is not part of this release.
+- International route scoring may have lower confidence where DB1B fare coverage is limited.
+- This tool does not provide official airline planning, FAA, dispatch, or operational recommendations.
 
 ---
 
 ## Roadmap / Future Work
 
+- Unserved market discovery (hypothetical route scoring)
 - Real-time flight status overlay via public ADS-B feeds
 - Airport congestion and delay heatmaps
 - Side-by-side carrier comparison view
