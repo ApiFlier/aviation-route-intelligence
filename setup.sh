@@ -134,16 +134,29 @@ else
     source "$ENV_FILE"
     set +a
 
-    # Migrate any old per-service port variables and ensure APP_PORT is set
-    START_PORT="${APP_PORT:-${FRONTEND_PORT:-8082}}"
-    FINAL_PORT=$(next_open_port "$START_PORT")
+    # Remove the existing app container so its bound port is freed before the
+    # availability check below. Without this, next_open_port sees the port as
+    # occupied on every re-run and increments the number unnecessarily.
+    if docker inspect flightconn-app >/dev/null 2>&1; then
+        echo "==> Removing existing app container to free its port..."
+        docker stop flightconn-app 2>/dev/null || true
+        docker rm   flightconn-app 2>/dev/null || true
+    fi
 
-    if [ "$FINAL_PORT" != "$APP_PORT" ] || ! grep -q "APP_PORT=" "$ENV_FILE"; then
+    # Migrate any old per-service port variables and ensure APP_PORT is set
+    PREV_PORT="${APP_PORT:-${FRONTEND_PORT:-8082}}"
+    FINAL_PORT=$(next_open_port "$PREV_PORT")
+
+    if ! grep -q "APP_PORT=" "$ENV_FILE" || [ "$FINAL_PORT" != "$PREV_PORT" ]; then
         sed -i '/FRONTEND_PORT=/d' "$ENV_FILE"
         sed -i '/API_PORT=/d' "$ENV_FILE"
         sed -i '/APP_PORT=/d' "$ENV_FILE"
         echo "APP_PORT=$FINAL_PORT" >> "$ENV_FILE"
-        echo "    Updated APP_PORT to $FINAL_PORT."
+        if [ "$FINAL_PORT" != "$PREV_PORT" ]; then
+            echo "    Port $PREV_PORT is in use by another process; assigned APP_PORT=$FINAL_PORT."
+        else
+            echo "    APP_PORT set to $FINAL_PORT."
+        fi
         APP_PORT=$FINAL_PORT
     else
         echo "    .env is up to date (APP_PORT=$APP_PORT)."

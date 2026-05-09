@@ -1,0 +1,25 @@
+# Python bytecode
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Large source data files — not needed inside the image.
+# db_backup.sql.gz is seeded from the host via setup.sh, not from the container.
+api/Data/*.csv
+api/Data/*.zip
+api/Data/*.sql.gz
+
+# Environment and secrets
+.env
+deploy.env
+
+# Local runtime artifacts
+backups/
+logs/
+*.log
+
+# Editor / OS metadata
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db

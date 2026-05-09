@@ -9,7 +9,6 @@ def _mins_to_time(mins):
     if mins is None:
         return None
     h = mins // 60
-    m = mins % 100  # already minutes portion
     m = mins % 60
     period = 'am' if h < 12 else 'pm'
     h12 = h % 12 or 12

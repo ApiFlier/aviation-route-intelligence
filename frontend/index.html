@@ -247,16 +247,15 @@
         
         async function loadInitialData() {
             try {
-                const stats = await API.getStats();
+                const [stats, data, acData] = await Promise.all([
+                    API.getStats(),
+                    API.getAirports({ hasRoutes: true, limit: 2500 }),
+                    API.getAircraft({ limit: 500 })
+                ]);
                 document.getElementById('route-count').textContent = (stats.routes || 0).toLocaleString();
                 document.getElementById('airport-count').textContent = (stats.airports || 0).toLocaleString();
-                
-                const data = await API.getAirports({ hasRoutes: true, limit: 2500 });
                 showAirportsOnMap(data.airports);
-
-                const acData = await API.getAircraft({ limit: 500 });
                 acData.aircraft.forEach(ac => aircraftCache[ac.type_id] = ac.short_name || ac.long_name || ac.type_id);
-                
                 document.getElementById('loading').classList.add('hidden');
             } catch (err) {
                 console.error('Failed to load data:', err);
@@ -908,6 +907,54 @@
             showAirportsOnMap(data.airports);
         }
         
+        async function loadMoreRoutes(iata, offset) {
+            const btn = document.querySelector('#info-panel .load-more');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...'; }
+            try {
+                const routesData = await API.getAirportRoutes(iata, { direction: 'out', limit: 50, offset });
+                const container = document.querySelector('#info-panel .list-container');
+                if (!container) return;
+
+                for (const route of routesData.routes) {
+                    const destCode = route.dest === iata ? route.origin : route.dest;
+                    const destCity = route.dest === iata ? route.origin_city : route.dest_city;
+                    const destCountry = route.dest === iata ? route.origin_country : route.dest_country;
+                    const routeType = getRouteType(route);
+
+                    let badge = '';
+                    if (routeType === 'freight') badge = '<span class="route-type freight"><i class="fas fa-box"></i> Cargo</span>';
+                    else if (routeType === 'mixed') badge = '<span class="route-type mixed"><i class="fas fa-random"></i> Mixed</span>';
+                    if (destCountry && destCountry !== 'US') badge += '<span class="route-type intl"><i class="fas fa-globe"></i> Intl</span>';
+
+                    const item = document.createElement('div');
+                    item.className = 'route-item';
+                    item.onclick = () => selectRoute(iata, destCode);
+                    item.innerHTML = `<div><span class="dest-code">${destCode}</span>${badge}</div>
+                        <div class="dest-name">${destCity || ''}</div>
+                        <div class="route-stats">
+                            <span><i class="fas fa-users"></i> <strong>${formatNum(route.passengers)}</strong></span>
+                            <span><i class="fas fa-building"></i> <strong>${route.carrier_count || 0}</strong></span>
+                            <span><i class="fas fa-ruler"></i> ${route.distance || 0} mi</span>
+                        </div>`;
+                    container.appendChild(item);
+                }
+
+                const newOffset = offset + routesData.routes.length;
+                if (btn) {
+                    if (newOffset < routesData.total) {
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-chevron-down"></i> Load More (${routesData.total - newOffset} remaining)`;
+                        btn.onclick = () => loadMoreRoutes(iata, newOffset);
+                    } else {
+                        btn.remove();
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load more routes:', err);
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-chevron-down"></i> Load More'; }
+            }
+        }
+
         initMap();
         loadInitialData();
     </script>

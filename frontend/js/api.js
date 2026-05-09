@@ -35,8 +35,10 @@ const API = (() => {
             return _get(`/airports/${iata}`);
         },
 
-        getAirportRoutes(iata, { direction = 'out', limit = 100 } = {}) {
-            return _get(`/airports/${iata}/routes?direction=${direction}&limit=${limit}`);
+        getAirportRoutes(iata, { direction = 'out', limit = 100, offset = 0 } = {}) {
+            const params = new URLSearchParams({ direction, limit });
+            if (offset) params.set('offset', offset);
+            return _get(`/airports/${iata}/routes?${params}`);
         },
 
         // ── Routes ────────────────────────────────────────────────────
