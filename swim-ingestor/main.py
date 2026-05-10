@@ -181,19 +181,21 @@ def _run_probe(log: logging.Logger) -> None:
     # ── Log safe probe summary ────────────────────────────────────────────
     if probe_result:
         if probe_result.connected:
-            log.info('Probe result: connected=yes, messages_received=%d',
-                     probe_result.messages_received)
+            log.info('Probe result: connected=yes, messages_received=%d, parsed=%d, inserted=%d, skipped=%d, parse_errors=%d',
+                     probe_result.messages_received, probe_result.parsed_successfully, probe_result.inserted_or_updated,
+                     probe_result.skipped_missing_route + probe_result.skipped_unknown_type, probe_result.parse_errors)
             for label, count in probe_result.counts_by_label.items():
                 log.info('  queue %s: %d message(s)', label, count)
             for meta in probe_result.messages_metadata:
                 log.info(
                     '  msg: queue=%s received_at=%s payload_bytes=%d '
-                    'content_type=%s msg_type=%s',
+                    'msg_type=%s parsed=%s skip_reason=%s',
                     meta['queue_label'],
                     meta['received_at'],
                     meta['payload_bytes'],
-                    meta['content_type'],
-                    meta['msg_type'],
+                    meta.get('msg_type', 'unknown'),
+                    meta.get('parsed', False),
+                    meta.get('skip_reason', 'N/A')
                 )
         else:
             log.warning('Probe result: connected=no. error=%s',

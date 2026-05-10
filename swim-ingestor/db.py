@@ -148,6 +148,39 @@ def start_ingestion_run(source: str) -> int:
     return run_id
 
 
+def upsert_observed_flight(flight_data: dict) -> bool:
+    """
+    Safely upsert a normalized observed_flight row.
+    Returns True if inserted/updated, False otherwise.
+    """
+    if not flight_data or not flight_data.get('source_flight_id'):
+        return False
+        
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = '''
+                INSERT INTO observed_flights (
+                    source_flight_id, data_source, callsign, carrier_code,
+                    origin_iata, dest_iata, flight_status, aircraft_type
+                ) VALUES (
+                    %(source_flight_id)s, %(data_source)s, %(callsign)s, %(carrier_code)s,
+                    %(origin_iata)s, %(dest_iata)s, %(flight_status)s, %(aircraft_type)s
+                ) ON DUPLICATE KEY UPDATE
+                    callsign = VALUES(callsign),
+                    carrier_code = VALUES(carrier_code),
+                    origin_iata = VALUES(origin_iata),
+                    dest_iata = VALUES(dest_iata),
+                    flight_status = VALUES(flight_status),
+                    aircraft_type = VALUES(aircraft_type),
+                    last_updated_at = CURRENT_TIMESTAMP
+            '''
+            cur.execute(sql, flight_data)
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("Failed to upsert flight %s: %s", flight_data.get('source_flight_id'), e)
+        return False
 def finish_ingestion_run(
     run_id: int,
     status: str,

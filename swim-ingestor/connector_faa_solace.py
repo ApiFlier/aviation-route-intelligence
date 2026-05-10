@@ -17,6 +17,9 @@ from solace.messaging.resources.queue import Queue
 from solace.messaging.config.retry_strategy import RetryStrategy
 from solace.messaging.receiver.message_receiver import MessageHandler, InboundMessage
 
+from normalizer import parse_swim_message
+from db import upsert_observed_flight
+
 log = logging.getLogger('swim-ingestor.connector')
 
 _QUEUE_VARS: dict[str, str] = {
@@ -34,6 +37,13 @@ class ProbeResult:
         self.counts_by_label: dict[str, int] = {}
         self.errors: list[str] = []
         self.error_summary: str = ''
+        
+        # Phase 2B Parsing stats
+        self.parsed_successfully: int = 0
+        self.inserted_or_updated: int = 0
+        self.skipped_missing_route: int = 0
+        self.skipped_unknown_type: int = 0
+        self.parse_errors: int = 0
 
 def _resolve_broker() -> tuple:
     # Use default 55443 as in Radar
@@ -61,23 +71,42 @@ sni = {ems2_host}
     return conf_path
 
 class _ProbeMessageHandler(MessageHandler):
-    def __init__(self, max_messages: int, label: str, listener):
+    def __init__(self, max_messages: int, label: str, listener, result: ProbeResult):
         self._max = max_messages
         self._label = label
         self._listener = listener
+        self._result = result
 
     def on_message(self, message: InboundMessage):
         payload = message.get_payload_as_bytes()
         payload_bytes = len(payload) if payload else 0
+        
+        parsed_res = parse_swim_message(self._label, payload)
         
         meta = {
             'queue_label': self._label,
             'received_at': datetime.now(timezone.utc).isoformat(),
             'payload_bytes': payload_bytes,
             'content_type': 'solace',
-            'msg_type': 'solace',
+            'msg_type': parsed_res.get('message_type', 'unknown'),
+            'parsed': parsed_res['success'],
+            'skip_reason': parsed_res.get('skip_reason')
         }
+        
         with self._listener._lock:
+            if parsed_res['success']:
+                self._result.parsed_successfully += 1
+                if upsert_observed_flight(parsed_res['flight_data']):
+                    self._result.inserted_or_updated += 1
+            else:
+                reason = parsed_res.get('skip_reason', '')
+                if 'Parse Error' in reason or 'Syntax Error' in reason:
+                    self._result.parse_errors += 1
+                elif 'Missing origin' in reason or 'Missing GUFI' in reason or 'Missing ACID' in reason:
+                    self._result.skipped_missing_route += 1
+                else:
+                    self._result.skipped_unknown_type += 1
+
             self._listener.messages.append(meta)
             if len(self._listener.messages) >= self._max:
                 self._listener.done.set()
@@ -144,7 +173,7 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
             queue = Queue.durable_exclusive_queue(q_val)
             receiver = messaging_service.create_persistent_message_receiver_builder().build(queue)
             receiver.start()
-            receiver.receive_async(_ProbeMessageHandler(max_messages, label, listener))
+            receiver.receive_async(_ProbeMessageHandler(max_messages, label, listener, result))
             receivers.append(receiver)
             log.info(f"Connected and subscribed to {label} via {vpn_name} on port {local_port}")
             

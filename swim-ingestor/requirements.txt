@@ -3,6 +3,9 @@
 # Solace PubSub+ Python client (primary path)
 solace-pubsubplus>=1.5.0
 
+# XML parser for FAA SWIM messages
+lxml>=4.9.0
+
 # STOMP protocol client (advanced fallback)
 stomp.py>=8.1.0,<9.0
 
