@@ -133,7 +133,9 @@ def _resolve_broker() -> tuple:
 
     faa_host = os.environ.get('FAA_SWIM_HOST', '').strip()
     if not faa_host:
-        # Fall back to the known FAA SWIM SCDS production endpoint
+        # Fall back to the known FAA SWIM SCDS production endpoint.
+        # TODO: 55443 is typically Solace SMF TLS. STOMP usually requires 61614.
+        # User should explicitly configure FAA_URL=tcps://ems1.swim.faa.gov:61614 if STOMP is required.
         host, port, use_ssl = _parse_broker_url('tcps://ems1.swim.faa.gov:55443')
         return host, port, use_ssl, 'default'
 
@@ -334,7 +336,12 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
             result.error_summary = (
                 f'TCP connection failed: {type(cause).__name__ if cause else type(e).__name__}'
             )
-            hint = 'Check network/firewall access to the broker host and port.'
+            hint = (
+                'Check network/firewall access to the broker host and port. '
+                'Note: If connecting to port 55443, the server may be returning '
+                'binary SMF data instead of STOMP, causing this failure. '
+                'STOMP typically requires port 61614.'
+            )
         result.errors.append(_redact_error(str(e)))
         log.error('SWIM connection failed: %s', result.error_summary)
         log.error('Hint: %s', hint)
