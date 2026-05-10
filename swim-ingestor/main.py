@@ -200,8 +200,17 @@ def _run_probe(log: logging.Logger) -> None:
                      probe_result.skipped_missing_route + probe_result.skipped_unknown_type, probe_result.parse_errors)
             for label, count in probe_result.counts_by_label.items():
                 log.info('  queue %s: %d message(s)', label, count)
-            for meta in probe_result.messages_metadata:
-                log.info(
+            if probe_result.skip_reason_counts:
+                log.info('  skip reasons: %s', ', '.join([f"{k}: {v}" for k, v in probe_result.skip_reason_counts.items()]))
+            
+            verbose = _get('SWIM_VERBOSE_MESSAGES', 'false').lower() == 'true'
+            sample_limit = int(_get('SWIM_MESSAGE_LOG_SAMPLE_LIMIT', '10'))
+            
+            for i, meta in enumerate(probe_result.messages_metadata):
+                # Always log to DEBUG. Log to INFO only if verbose and under sample limit.
+                msg_level = logging.INFO if (verbose and i < sample_limit) else logging.DEBUG
+                log.log(
+                    msg_level,
                     '  msg: queue=%s received_at=%s payload_bytes=%d '
                     'msg_type=%s parsed=%s skip_reason=%s records_extracted=%d collections=%d candidates=%d',
                     meta['queue_label'],
@@ -214,6 +223,8 @@ def _run_probe(log: logging.Logger) -> None:
                     meta.get('collections_unpacked', 0),
                     meta.get('candidates_found', 0)
                 )
+            if verbose and len(probe_result.messages_metadata) > sample_limit:
+                log.info('  ... (further %d messages at DEBUG level only)', len(probe_result.messages_metadata) - sample_limit)
         else:
             log.warning('Probe result: connected=no. error=%s',
                         probe_result.error_summary or '(unknown)')
@@ -256,9 +267,11 @@ def _run_continuous(log: logging.Logger) -> None:
     """Run continuous ingestion mode with periodic aggregation and cleanup."""
     agg_interval   = int(_get('SWIM_AGGREGATION_INTERVAL_SECONDS', '900'))
     retention_days = int(_get('SWIM_RETENTION_DAYS', '35'))
+    summary_interval = int(_get('SWIM_SUMMARY_INTERVAL_SECONDS', '60'))
     
     log.info('Starting Phase 3 continuous ingestion.')
     log.info('Aggregation interval: %ds', agg_interval)
+    log.info('Summary interval: %ds', summary_interval)
     log.info('Retention period: %d days', retention_days)
 
     # ── Ensure schema is applied ──────────────────────────────────────────
@@ -289,27 +302,51 @@ def _run_continuous(log: logging.Logger) -> None:
 
     last_agg_time = time.monotonic()
     last_cleanup_time = time.monotonic()
+    last_summary_time = time.monotonic()
+    
+    verbose = _get('SWIM_VERBOSE_MESSAGES', 'false').lower() == 'true'
+    sample_limit = int(_get('SWIM_MESSAGE_LOG_SAMPLE_LIMIT', '5'))
     
     try:
         while not _stop_event.is_set():
-            # Periodically update metrics in DB
-            with listener._lock:
-                counts = {
-                    'messages_recv':   result.messages_received,
-                    'messages_ok':     result.parsed_successfully,
-                    'messages_err':    result.parse_errors,
-                    'flights_new':     result.inserted_or_updated,
-                    'flights_updated': 0,
-                }
-            update_ingestion_run_metrics(run_id, counts)
+            now = time.monotonic()
             
-            # Safe status log
-            log.info('Status: recv=%d parsed=%d inserted=%d errors=%d',
-                     counts['messages_recv'], counts['messages_ok'], 
-                     counts['flights_new'], counts['messages_err'])
+            # Summary and DB update schedule
+            if now - last_summary_time >= summary_interval:
+                with listener._lock:
+                    counts = {
+                        'messages_recv':   result.messages_received,
+                        'messages_ok':     result.parsed_successfully,
+                        'messages_err':    result.parse_errors,
+                        'flights_new':     result.inserted_or_updated,
+                        'flights_updated': 0,
+                    }
+                    # Detailed summary
+                    log.info('Status: recv=%d parsed=%d route_ready=%d partial=%d inserted=%d errors=%d',
+                             result.messages_received, result.parsed_successfully,
+                             result.route_ready_count, result.partial_count,
+                             result.inserted_or_updated, result.parse_errors)
+                    
+                    if result.counts_by_label:
+                        log.info('  queues: %s', ', '.join([f"{k}: {v}" for k, v in result.counts_by_label.items()]))
+                    if result.skip_reason_counts:
+                        log.info('  skip reasons: %s', ', '.join([f"{k}: {v}" for k, v in result.skip_reason_counts.items()]))
+                    
+                    if verbose:
+                        # Log sampled recent messages at DEBUG
+                        for i, meta in enumerate(listener.messages[-sample_limit:]):
+                            log.debug(
+                                '  msg: queue=%s received_at=%s payload_bytes=%d '
+                                'msg_type=%s parsed=%s skip_reason=%s records_extracted=%d',
+                                meta['queue_label'], meta['received_at'], meta['payload_bytes'],
+                                meta.get('msg_type', 'unknown'), meta.get('parsed', False),
+                                meta.get('skip_reason') or 'N/A', meta.get('records_extracted', 0)
+                            )
+
+                update_ingestion_run_metrics(run_id, counts)
+                last_summary_time = now
 
             # Aggregation schedule
-            now = time.monotonic()
             if now - last_agg_time >= agg_interval:
                 log.info('Running scheduled aggregation...')
                 run_all_aggregations()
@@ -320,8 +357,8 @@ def _run_continuous(log: logging.Logger) -> None:
                 cleanup_old_data(retention_days)
                 last_cleanup_time = now
 
-            # Wait for next heartbeat/check, but respond to stop_event
-            _stop_event.wait(timeout=30)
+            # Wait for next check, but respond to stop_event
+            _stop_event.wait(timeout=min(10, summary_interval))
             
     except Exception as e:
         log.error('Continuous loop crashed: %s: %s', type(e).__name__, str(e)[:200])

@@ -46,6 +46,7 @@ class ProbeResult:
         self.skipped_missing_route: int = 0
         self.skipped_unknown_type: int = 0
         self.parse_errors: int = 0
+        self.skip_reason_counts: dict[str, int] = {}
 
 def _resolve_broker() -> tuple:
     # Use default 55443 as in Radar
@@ -107,6 +108,8 @@ class _IngestMessageHandler(MessageHandler):
         
         with self._listener._lock:
             self._result.messages_received += 1
+            self._result.counts_by_label[self._label] = self._result.counts_by_label.get(self._label, 0) + 1
+            
             if parsed_res['success']:
                 # The payload parsed successfully, process the extracted records
                 for rec in parsed_res['records']:
@@ -123,6 +126,10 @@ class _IngestMessageHandler(MessageHandler):
                             self._result.inserted_or_updated += 1
                     else:
                         reason = rec.get('skip_reason', '')
+                        # Clean up reason for summary: remove "Tags: [...]"
+                        clean_reason = reason.split('. Tags:')[0] if '. Tags:' in reason else reason
+                        self._result.skip_reason_counts[clean_reason] = self._result.skip_reason_counts.get(clean_reason, 0) + 1
+
                         if 'Missing origin' in reason or 'Missing GUFI' in reason or 'Missing ACID' in reason or 'non-IATA' in reason:
                             self._result.skipped_missing_route += 1
                         else:
@@ -130,6 +137,9 @@ class _IngestMessageHandler(MessageHandler):
             else:
                 # The whole payload failed to parse
                 reason = parsed_res.get('skip_reason', '')
+                clean_reason = reason.split('. Tags:')[0] if '. Tags:' in reason else reason
+                self._result.skip_reason_counts[clean_reason] = self._result.skip_reason_counts.get(clean_reason, 0) + 1
+
                 if 'Parse Error' in reason or 'Syntax Error' in reason:
                     self._result.parse_errors += 1
                 else:
@@ -235,10 +245,6 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
 
     result.messages_metadata = listener.messages
     result.errors.extend(listener.errors)
-
-    for meta in listener.messages:
-        lbl = meta['queue_label']
-        result.counts_by_label[lbl] = result.counts_by_label.get(lbl, 0) + 1
 
     return result
 
