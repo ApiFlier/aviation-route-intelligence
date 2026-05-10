@@ -23,3 +23,7 @@ logs/
 .vscode/
 .idea/
 Thumbs.db
+
+# Large local aviation source/import data
+api/Data/faa-data/
+api/Data/faa-data/**

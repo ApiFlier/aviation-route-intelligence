@@ -9,6 +9,8 @@ venv/
 
 # Environment
 .env
+deploy.env
+swim.env
 
 # Large raw data files
 api/Data/*.csv
@@ -17,6 +19,7 @@ api/Data/*.zip
 # Keep deploy database backup and schema files
 !api/Data/db_backup.sql.gz
 !api/Data/schema.sql
+!api/Data/swim_schema.sql
 
 # OS/editor
 .DS_Store
