@@ -1,6 +1,13 @@
 """
 FlightConn SWIM Ingestor — Aggregator
 Aggregates route-ready flight observations into recent activity tables.
+
+Consumption Rules for App APIs:
+- Default to filtering by:
+    activity_classification IN ('historical_commercial_match', 'recent_commercial_candidate')
+- Avoid prominent display of:
+    activity_classification IN ('unknown_or_noncommercial', 'insufficient_data')
+- Use 'recent_activity_only' as a secondary signal for non-traditional routes.
 """
 
 import logging
@@ -26,33 +33,39 @@ def aggregate_recent_route_activity(lookback_days: int = 30) -> int:
     try:
         # Step 1: Compute aggregates from observed_flights
         with conn.cursor() as cur:
+            # Join with historical routes and airports to determine classification
             sql_agg = """
                 SELECT 
-                    origin_iata,
-                    dest_iata,
-                    MIN(DATE(first_seen_at)) as coverage_start_date,
-                    MAX(DATE(last_updated_at)) as coverage_end_date,
-                    COUNT(DISTINCT DATE(first_seen_at)) as coverage_days,
+                    o.origin_iata,
+                    o.dest_iata,
+                    MIN(DATE(o.first_seen_at)) as coverage_start_date,
+                    MAX(DATE(o.last_updated_at)) as coverage_end_date,
+                    COUNT(DISTINCT DATE(o.first_seen_at)) as coverage_days,
                     COUNT(*) as observation_count,
-                    COUNT(DISTINCT carrier_code) as carrier_count_observed,
-                    MAX(last_updated_at) as last_observed_at
-                FROM observed_flights
-                WHERE origin_iata IS NOT NULL 
-                  AND dest_iata IS NOT NULL
-                  AND LENGTH(origin_iata) = 3
-                  AND LENGTH(dest_iata) = 3
-                  AND source_flight_id IS NOT NULL
-                  AND first_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
-                GROUP BY origin_iata, dest_iata
+                    COUNT(DISTINCT o.carrier_code) as carrier_count_observed,
+                    MAX(o.last_updated_at) as last_observed_at,
+                    IF(rt.id IS NOT NULL, 1, 0) as has_historical_route,
+                    IF(a1.iata IS NOT NULL AND a2.iata IS NOT NULL, 1, 0) as has_known_airports
+                FROM observed_flights o
+                LEFT JOIN routes rt ON rt.origin = o.origin_iata AND rt.dest = o.dest_iata
+                LEFT JOIN airports a1 ON a1.iata = o.origin_iata
+                LEFT JOIN airports a2 ON a2.iata = o.dest_iata
+                WHERE o.origin_iata IS NOT NULL 
+                  AND o.dest_iata IS NOT NULL
+                  AND LENGTH(o.origin_iata) = 3
+                  AND LENGTH(o.dest_iata) = 3
+                  AND o.source_flight_id IS NOT NULL
+                  AND o.first_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
+                GROUP BY o.origin_iata, o.dest_iata
             """
             cur.execute(sql_agg, (lookback_days,))
             results = cur.fetchall()
 
-        # Step 2: Calculate display mode and confidence, then upsert
+        # Step 2: Calculate display mode, classification, and confidence, then upsert
         for row in results:
-            origin_iata, dest_iata, start_date, end_date, coverage_days, obs_count, carrier_count, last_obs = row
+            origin_iata, dest_iata, start_date, end_date, coverage_days, obs_count, carrier_count, last_obs, has_historical, has_airports = row
             
-            # Confidence rules
+            # Confidence rules for display
             if obs_count == 0:
                 confidence = 'none'
             elif coverage_days < 7 or obs_count < 3:
@@ -62,6 +75,26 @@ def aggregate_recent_route_activity(lookback_days: int = 30) -> int:
             else:
                 confidence = 'medium'
                 
+            # Route Classification Logic
+            if has_historical:
+                classification = 'historical_commercial_match'
+                commercial_confidence = 'high' if obs_count >= 3 else 'medium'
+            elif has_airports:
+                if obs_count >= 5:
+                    classification = 'recent_commercial_candidate'
+                    commercial_confidence = 'medium'
+                else:
+                    classification = 'recent_activity_only'
+                    commercial_confidence = 'low'
+            else:
+                classification = 'unknown_or_noncommercial'
+                commercial_confidence = 'none'
+                
+            if obs_count < 2:
+                classification = 'insufficient_data'
+
+            classification_note = "App APIs should filter for historical_commercial_match or recent_commercial_candidate."
+
             # Display mode rules
             if obs_count == 0:
                 display_mode = 'historical_only'
@@ -94,9 +127,10 @@ def aggregate_recent_route_activity(lookback_days: int = 30) -> int:
                 INSERT INTO recent_route_activity (
                     origin_iata, dest_iata, coverage_start_date, coverage_end_date, 
                     coverage_days, observation_count, observed_carriers, carrier_count_observed,
-                    last_observed_at, last_observed_carrier, display_mode, confidence, computed_at
+                    last_observed_at, last_observed_carrier, display_mode, confidence, 
+                    activity_classification, commercial_confidence, classification_note, computed_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()
                 ) ON DUPLICATE KEY UPDATE
                     coverage_start_date = VALUES(coverage_start_date),
                     coverage_end_date = VALUES(coverage_end_date),
@@ -108,12 +142,16 @@ def aggregate_recent_route_activity(lookback_days: int = 30) -> int:
                     last_observed_carrier = VALUES(last_observed_carrier),
                     display_mode = VALUES(display_mode),
                     confidence = VALUES(confidence),
+                    activity_classification = VALUES(activity_classification),
+                    commercial_confidence = VALUES(commercial_confidence),
+                    classification_note = VALUES(classification_note),
                     computed_at = UTC_TIMESTAMP()
             """
             with conn.cursor() as cur_upsert:
                 cur_upsert.execute(upsert_sql, (
                     origin_iata, dest_iata, start_date, end_date, coverage_days, obs_count,
-                    carriers, carrier_count, last_obs, last_carrier, display_mode, confidence
+                    carriers, carrier_count, last_obs, last_carrier, display_mode, confidence,
+                    classification, commercial_confidence, classification_note
                 ))
             updated_rows += 1
             
@@ -137,48 +175,78 @@ def aggregate_recent_route_carrier_activity(lookback_days: int = 30) -> int:
         with conn.cursor() as cur:
             sql_agg = """
                 SELECT 
-                    origin_iata,
-                    dest_iata,
-                    carrier_code,
-                    MIN(DATE(first_seen_at)) as coverage_start_date,
-                    MAX(DATE(last_updated_at)) as coverage_end_date,
-                    COUNT(DISTINCT DATE(first_seen_at)) as coverage_days,
+                    o.origin_iata,
+                    o.dest_iata,
+                    o.carrier_code,
+                    MIN(DATE(o.first_seen_at)) as coverage_start_date,
+                    MAX(DATE(o.last_updated_at)) as coverage_end_date,
+                    COUNT(DISTINCT DATE(o.first_seen_at)) as coverage_days,
                     COUNT(*) as observation_count,
-                    MAX(last_updated_at) as last_observed_at
-                FROM observed_flights
-                WHERE origin_iata IS NOT NULL 
-                  AND dest_iata IS NOT NULL
-                  AND LENGTH(origin_iata) = 3
-                  AND LENGTH(dest_iata) = 3
-                  AND source_flight_id IS NOT NULL
-                  AND carrier_code IS NOT NULL
-                  AND first_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
-                GROUP BY origin_iata, dest_iata, carrier_code
+                    MAX(o.last_updated_at) as last_observed_at,
+                    IF(rt.id IS NOT NULL, 1, 0) as has_historical_route,
+                    IF(c.code IS NOT NULL, 1, 0) as has_known_carrier,
+                    IF(hc.id IS NOT NULL, 1, 0) as carrier_on_route_historically
+                FROM observed_flights o
+                LEFT JOIN routes rt ON rt.origin = o.origin_iata AND rt.dest = o.dest_iata
+                LEFT JOIN carriers c ON c.code = o.carrier_code
+                LEFT JOIN route_carriers hc ON hc.route_id = rt.id AND hc.carrier_code = o.carrier_code
+                WHERE o.origin_iata IS NOT NULL 
+                  AND o.dest_iata IS NOT NULL
+                  AND LENGTH(o.origin_iata) = 3
+                  AND LENGTH(o.dest_iata) = 3
+                  AND o.source_flight_id IS NOT NULL
+                  AND o.carrier_code IS NOT NULL
+                  AND o.first_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
+                GROUP BY o.origin_iata, o.dest_iata, o.carrier_code
             """
             cur.execute(sql_agg, (lookback_days,))
             results = cur.fetchall()
 
         for row in results:
-            origin_iata, dest_iata, carrier_code, start_date, end_date, coverage_days, obs_count, last_obs = row
+            origin_iata, dest_iata, carrier_code, start_date, end_date, coverage_days, obs_count, last_obs, has_historical, has_known_carrier, carrier_historical = row
             
+            # Route Carrier Classification Logic
+            if carrier_historical:
+                classification = 'historical_commercial_match'
+                commercial_confidence = 'high' if obs_count >= 3 else 'medium'
+            elif has_known_carrier and has_historical:
+                if obs_count >= 5:
+                    classification = 'recent_commercial_candidate'
+                    commercial_confidence = 'medium'
+                else:
+                    classification = 'recent_activity_only'
+                    commercial_confidence = 'low'
+            elif has_known_carrier:
+                classification = 'recent_activity_only'
+                commercial_confidence = 'low'
+            else:
+                classification = 'unknown_or_noncommercial'
+                commercial_confidence = 'none'
+
+            if obs_count < 2:
+                classification = 'insufficient_data'
+
             upsert_sql = """
                 INSERT INTO recent_route_carrier_activity (
                     origin_iata, dest_iata, carrier_code, coverage_start_date, coverage_end_date, 
-                    coverage_days, observation_count, last_observed_at, computed_at
+                    coverage_days, observation_count, last_observed_at, 
+                    activity_classification, commercial_confidence, computed_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()
                 ) ON DUPLICATE KEY UPDATE
                     coverage_start_date = VALUES(coverage_start_date),
                     coverage_end_date = VALUES(coverage_end_date),
                     coverage_days = VALUES(coverage_days),
                     observation_count = VALUES(observation_count),
                     last_observed_at = VALUES(last_observed_at),
+                    activity_classification = VALUES(activity_classification),
+                    commercial_confidence = VALUES(commercial_confidence),
                     computed_at = UTC_TIMESTAMP()
             """
             with conn.cursor() as cur_upsert:
                 cur_upsert.execute(upsert_sql, (
                     origin_iata, dest_iata, carrier_code, start_date, end_date, 
-                    coverage_days, obs_count, last_obs
+                    coverage_days, obs_count, last_obs, classification, commercial_confidence
                 ))
             updated_rows += 1
             
@@ -217,6 +285,7 @@ def aggregate_historical_recent_comparison(lookback_days: int = 30) -> int:
                   ON rt.origin = rec.origin_iata 
                  AND rt.dest = rec.dest_iata 
                  AND h.carrier_code = rec.carrier_code
+                 AND rec.activity_classification NOT IN ('unknown_or_noncommercial', 'insufficient_data')
                 
                 UNION
                 
@@ -234,6 +303,7 @@ def aggregate_historical_recent_comparison(lookback_days: int = 30) -> int:
                 LEFT JOIN route_carriers h 
                   ON h.route_id = rt.id 
                  AND h.carrier_code = rec.carrier_code
+                WHERE rec.activity_classification NOT IN ('unknown_or_noncommercial', 'insufficient_data')
             """
             cur.execute(sql)
             results = cur.fetchall()

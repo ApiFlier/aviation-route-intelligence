@@ -162,13 +162,16 @@ CREATE TABLE IF NOT EXISTS recent_route_activity (
     common_dep_windows     JSON,
     last_observed_at       DATETIME,
     last_observed_carrier  VARCHAR(10),
-    -- Backend-computed display signal for the frontend
+    -- Integration metadata
     display_mode           ENUM(
                                'historical_only',
                                'early_recent_signal',
                                'blend_recent_and_historical',
                                'recent_activity_primary'
                            ) NOT NULL DEFAULT 'historical_only',
+    activity_classification VARCHAR(50) DEFAULT 'insufficient_data',
+    commercial_confidence   ENUM('none', 'low', 'medium', 'high') DEFAULT 'none',
+    classification_note     VARCHAR(500) NULL,
     confidence             ENUM('none','low','medium','high') NOT NULL DEFAULT 'none',
     confidence_note        VARCHAR(500),
     -- Lets the app detect if the ingestor has gone silent
@@ -191,6 +194,9 @@ CREATE TABLE IF NOT EXISTS recent_route_carrier_activity (
     coverage_end_date   DATE            NOT NULL,
     coverage_days       SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     observation_count   INT UNSIGNED    NOT NULL DEFAULT 0,
+    activity_classification VARCHAR(50) DEFAULT 'insufficient_data',
+    commercial_confidence   ENUM('none', 'low', 'medium', 'high') DEFAULT 'none',
+
     common_dep_days     JSON,
     common_dep_windows  JSON,
     avg_dep_delay_mins  DECIMAL(6,1),

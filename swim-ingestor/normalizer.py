@@ -19,6 +19,23 @@ def _first_text(tree, xpath_expr):
         return matches[0].strip()
     return None
 
+# Mapping of ICAO (3-letter) to IATA (2-letter) carrier codes for major US airlines
+_CARRIER_MAP = {
+    'AAL': 'AA', 'DAL': 'DL', 'UAL': 'UA', 'SWA': 'WN', 'FFT': 'F9',
+    'JBU': 'B6', 'ASA': 'AS', 'NKS': 'NK', 'HAL': 'HA', 'SKW': 'OO',
+    'ENY': 'MQ', 'RPA': 'YX', 'EDV': '9E', 'PDT': 'PT', 'GJS': 'G7',
+    'UCA': 'ZK', 'MXY': 'MX', 'QXE': 'QX', 'SCX': 'SY', 'G7':  'G7',
+    'YX':  'YX', 'MQ':  'MQ', '9E':  '9E', 'F9':  'F9', 'B6':  'B6',
+    'AS':  'AS', 'NK':  'NK', 'HA':  'HA', 'OO':  'OO', 'PT':  'PT',
+    'ZK':  'ZK', 'MX':  'MX', 'QX':  'QX', 'SY':  'SY',
+}
+
+def _map_carrier(icao_code: str) -> str:
+    """Map 3-letter ICAO to 2-letter IATA if known, otherwise return original."""
+    if not icao_code:
+        return None
+    return _CARRIER_MAP.get(icao_code, icao_code)
+
 def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     """Attempt to extract normalized flight data from a single message element."""
     local_name = etree.QName(root).localname if hasattr(root, 'tag') else 'unknown'
@@ -94,7 +111,8 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     if dest and len(dest) != 3:
         dest = None # Partial fallback instead of skipping
 
-    carrier_code = ''.join([c for c in acid if c.isalpha()])[:3] if acid else None
+    carrier_icao = ''.join([c for c in acid if c.isalpha()])[:3] if acid else None
+    carrier_code = _map_carrier(carrier_icao)
 
     # A record is considered "route-ready" if it has both valid IATA origin and destination,
     # along with its core identifiers. Partial records are useful for status updates.
