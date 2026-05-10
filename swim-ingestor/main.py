@@ -49,8 +49,21 @@ Environment variables (all optional for the main app):
 import os
 import sys
 import logging
+import time
+import signal
+import threading
 
 _QUEUE_VARS = ('QUEUE_SFDPS', 'QUEUE_STDDS', 'QUEUE_TFMS')
+
+# Event to coordinate graceful shutdown
+_stop_event = threading.Event()
+
+
+def _signal_handler(sig, frame):
+    """Handle termination signals."""
+    if not _stop_event.is_set():
+        logging.getLogger('swim-ingestor').info('Shutdown signal received. Gracefully stopping...')
+        _stop_event.set()
 
 
 def _present(name: str) -> bool:
@@ -239,8 +252,114 @@ def _run_probe(log: logging.Logger) -> None:
                         type(e).__name__, str(e)[:200])
 
 
+def _run_continuous(log: logging.Logger) -> None:
+    """Run continuous ingestion mode with periodic aggregation and cleanup."""
+    agg_interval   = int(_get('SWIM_AGGREGATION_INTERVAL_SECONDS', '900'))
+    retention_days = int(_get('SWIM_RETENTION_DAYS', '35'))
+    
+    log.info('Starting Phase 3 continuous ingestion.')
+    log.info('Aggregation interval: %ds', agg_interval)
+    log.info('Retention period: %d days', retention_days)
+
+    # ── Ensure schema is applied ──────────────────────────────────────────
+    from db import apply_schema, cleanup_old_data, update_ingestion_run_metrics
+    apply_schema()
+    
+    # ── Run initial aggregation ───────────────────────────────────────────
+    from aggregator import run_all_aggregations
+    log.info('Running initial startup aggregation...')
+    run_all_aggregations()
+
+    # ── Start ingestion run record ────────────────────────────────────────
+    from db import start_ingestion_run, finish_ingestion_run
+    run_id = start_ingestion_run('FAA_SWIM_CONTINUOUS')
+    log.info('Continuous ingestion run started: id=%d', run_id)
+
+    # ── Start continuous connection ───────────────────────────────────────
+    from connector_faa_solace import start_continuous_ingestion
+    
+    try:
+        result, objects = start_continuous_ingestion(_stop_event)
+    except Exception as e:
+        log.error('Failed to start continuous ingestion: %s: %s', type(e).__name__, e)
+        finish_ingestion_run(run_id, 'failed', {}, str(e))
+        return
+
+    stunnel_proc, messaging_services, receivers, listener = objects
+
+    last_agg_time = time.monotonic()
+    last_cleanup_time = time.monotonic()
+    
+    try:
+        while not _stop_event.is_set():
+            # Periodically update metrics in DB
+            with listener._lock:
+                counts = {
+                    'messages_recv':   result.messages_received,
+                    'messages_ok':     result.parsed_successfully,
+                    'messages_err':    result.parse_errors,
+                    'flights_new':     result.inserted_or_updated,
+                    'flights_updated': 0,
+                }
+            update_ingestion_run_metrics(run_id, counts)
+            
+            # Safe status log
+            log.info('Status: recv=%d parsed=%d inserted=%d errors=%d',
+                     counts['messages_recv'], counts['messages_ok'], 
+                     counts['flights_new'], counts['messages_err'])
+
+            # Aggregation schedule
+            now = time.monotonic()
+            if now - last_agg_time >= agg_interval:
+                log.info('Running scheduled aggregation...')
+                run_all_aggregations()
+                last_agg_time = now
+                
+            # Retention cleanup schedule (once every 12 hours)
+            if now - last_cleanup_time >= 43200:
+                cleanup_old_data(retention_days)
+                last_cleanup_time = now
+
+            # Wait for next heartbeat/check, but respond to stop_event
+            _stop_event.wait(timeout=30)
+            
+    except Exception as e:
+        log.error('Continuous loop crashed: %s: %s', type(e).__name__, str(e)[:200])
+        finish_ingestion_run(run_id, 'failed', {}, str(e)[:200])
+    finally:
+        log.info('Shutting down continuous ingestion...')
+        for r in receivers:
+            try: r.terminate()
+            except: pass
+        for s in messaging_services:
+            try: s.disconnect()
+            except: pass
+        stunnel_proc.terminate()
+        
+        # Final aggregation
+        log.info('Running final shutdown aggregation...')
+        try: run_all_aggregations()
+        except: pass
+        
+        # Final counts
+        with listener._lock:
+            counts = {
+                'messages_recv':   result.messages_received,
+                'messages_ok':     result.parsed_successfully,
+                'messages_err':    result.parse_errors,
+                'flights_new':     result.inserted_or_updated,
+                'flights_updated': 0,
+            }
+        finish_ingestion_run(run_id, 'completed', counts)
+        log.info('Continuous run closed.')
+
+
 def main() -> None:
     log = _setup_logging()
+    
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
     # ── Determine whether SWIM is enabled ────────────────────────────────
     # Advanced override: ENABLE_SWIM_INGESTOR (deploy.env) or SWIM_ENABLED (legacy).
@@ -296,9 +415,7 @@ def main() -> None:
         log.info('Probe complete. Exiting.')
         sys.exit(0)
 
-    # Full ingestion not implemented yet
-    log.info('Full continuous ingestion is not implemented yet (Phase 2B).')
-    log.info('Running in probe mode by default. Set SWIM_PROBE_ONLY=false only when Phase 2B is ready.')
+    _run_continuous(log)
     sys.exit(0)
 
 

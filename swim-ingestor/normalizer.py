@@ -36,6 +36,18 @@ def _map_carrier(icao_code: str) -> str:
         return None
     return _CARRIER_MAP.get(icao_code, icao_code)
 
+def _map_status(raw_status: str) -> str:
+    """Map arbitrary status string to allowed ENUM values."""
+    if not raw_status:
+        return 'active'
+    s = raw_status.lower()
+    if 'sched' in s: return 'scheduled'
+    if 'active' in s or 'enroute' in s or 'landed' in s: return 'active'
+    if 'comp' in s or 'arr' in s: return 'completed'
+    if 'can' in s: return 'cancelled'
+    if 'div' in s: return 'diverted'
+    return 'unknown'
+
 def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     """Attempt to extract normalized flight data from a single message element."""
     local_name = etree.QName(root).localname if hasattr(root, 'tag') else 'unknown'
@@ -94,10 +106,8 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
 
     aircraft_type = _first_text(root, ".//*[local-name()='aircraftType']//*[local-name()='type']")
     
-    status = 'active'
-    flight_status = _first_text(root, ".//*[local-name()='flightStatus']")
-    if flight_status:
-        status = flight_status.lower()
+    raw_status = _first_text(root, ".//*[local-name()='flightStatus']")
+    status = _map_status(raw_status)
 
     debug_tags = [etree.QName(c).localname for c in root.iter() if isinstance(c, etree._Element)][:20]
 

@@ -183,6 +183,85 @@ def upsert_observed_flight(flight_data: dict) -> bool:
     except Exception as e:
         log.error("Failed to upsert flight %s: %s", flight_data.get('source_flight_id'), e)
         return False
+def cleanup_old_data(retention_days: int = 35, runs_retention_days: int = 180) -> dict:
+    """
+    Safely delete old records from SWIM tables in batches.
+    Does NOT touch historical BTS tables.
+    """
+    log.info("Starting data retention cleanup (flights: %d days, runs: %d days)", 
+             retention_days, runs_retention_days)
+    
+    conn = get_connection()
+    results = {'flights_deleted': 0, 'runs_deleted': 0}
+    try:
+        with conn.cursor() as cur:
+            # 1. Clean up old observed_flights (cascade handles events)
+            # We do this in batches of 5000 to avoid long locks
+            while True:
+                cur.execute('''
+                    DELETE FROM observed_flights 
+                    WHERE last_updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
+                    LIMIT 5000
+                ''', (retention_days,))
+                deleted = cur.rowcount
+                results['flights_deleted'] += deleted
+                if deleted < 5000:
+                    break
+                conn.commit()
+                
+            # 2. Clean up old ingestion runs
+            while True:
+                cur.execute('''
+                    DELETE FROM swim_ingestion_runs
+                    WHERE started_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
+                    LIMIT 1000
+                ''', (runs_retention_days,))
+                deleted = cur.rowcount
+                results['runs_deleted'] += deleted
+                if deleted < 1000:
+                    break
+                conn.commit()
+                
+        conn.commit()
+        log.info("Cleanup completed: %s", results)
+    except Exception as e:
+        conn.rollback()
+        log.error("Cleanup failed: %s", e)
+    finally:
+        conn.close()
+    return results
+
+def update_ingestion_run_metrics(
+    run_id: int,
+    counts: dict
+) -> None:
+    """
+    Update a swim_ingestion_runs row with current metrics without closing the run.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                '''UPDATE swim_ingestion_runs SET
+                       messages_recv   = %s,
+                       messages_ok     = %s,
+                       messages_err    = %s,
+                       flights_new     = %s,
+                       flights_updated = %s
+                   WHERE id = %s''',
+                (
+                    counts.get('messages_recv', 0),
+                    counts.get('messages_ok', 0),
+                    counts.get('messages_err', 0),
+                    counts.get('flights_new', 0),
+                    counts.get('flights_updated', 0),
+                    run_id,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
 def finish_ingestion_run(
     run_id: int,
     status: str,

@@ -72,12 +72,12 @@ sni = {ems2_host}
         f.write(conf_content)
     return conf_path
 
-class _ProbeMessageHandler(MessageHandler):
-    def __init__(self, max_messages: int, label: str, listener, result: ProbeResult):
-        self._max = max_messages
+class _IngestMessageHandler(MessageHandler):
+    def __init__(self, label: str, listener, result: ProbeResult, max_messages: int = None):
         self._label = label
         self._listener = listener
         self._result = result
+        self._max = max_messages
 
     def on_message(self, message: InboundMessage):
         payload = message.get_payload_as_bytes()
@@ -106,6 +106,7 @@ class _ProbeMessageHandler(MessageHandler):
         }
         
         with self._listener._lock:
+            self._result.messages_received += 1
             if parsed_res['success']:
                 # The payload parsed successfully, process the extracted records
                 for rec in parsed_res['records']:
@@ -135,11 +136,19 @@ class _ProbeMessageHandler(MessageHandler):
                     self._result.skipped_unknown_type += 1
 
             self._listener.messages.append(meta)
-            if len(self._listener.messages) >= self._max:
+            # Keep only last 100 metadata items to avoid memory bloat in continuous mode
+            if len(self._listener.messages) > 100:
+                self._listener.messages.pop(0)
+
+            if self._max and self._result.messages_received >= self._max:
                 self._listener.done.set()
 
+class _ProbeMessageHandler(_IngestMessageHandler):
+    # Backward compatibility for run_probe
+    pass
+
 class _ProbeListener:
-    def __init__(self, max_messages: int):
+    def __init__(self, max_messages: int = None):
         self._max = max_messages
         self.messages: list[dict] = []
         self.errors: list[str] = []
@@ -148,11 +157,11 @@ class _ProbeListener:
 
 class ServiceEventHandler(ReconnectionListener, ReconnectionAttemptListener, ServiceInterruptionListener):
     def on_reconnected(self, e: ServiceEvent):
-        pass
+        log.info("Solace service reconnected: %s", e)
     def on_reconnecting(self, e: ServiceEvent):
-        pass
+        log.info("Solace service reconnecting...")
     def on_service_interrupted(self, e: ServiceEvent):
-        pass
+        log.warning("Solace service interrupted: %s", e)
 
 def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
     result = ProbeResult()
@@ -200,7 +209,7 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
             queue = Queue.durable_exclusive_queue(q_val)
             receiver = messaging_service.create_persistent_message_receiver_builder().build(queue)
             receiver.start()
-            receiver.receive_async(_ProbeMessageHandler(max_messages, label, listener, result))
+            receiver.receive_async(_IngestMessageHandler(label, listener, result, max_messages))
             receivers.append(receiver)
             log.info(f"Connected and subscribed to {label} via {vpn_name} on port {local_port}")
             
@@ -224,7 +233,6 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
         stunnel_proc.terminate()
         stunnel_proc.wait(timeout=5)
 
-    result.messages_received = len(listener.messages)
     result.messages_metadata = listener.messages
     result.errors.extend(listener.errors)
 
@@ -233,3 +241,70 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
         result.counts_by_label[lbl] = result.counts_by_label.get(lbl, 0) + 1
 
     return result
+
+def start_continuous_ingestion(stop_event: threading.Event) -> tuple:
+    """
+    Start continuous ingestion in background threads.
+    Returns (ProbeResult, list of objects to terminate)
+    """
+    result = ProbeResult()
+    result.connected = False
+
+    faa_user = os.environ.get('FAA_USER', '').strip()
+    faa_pass = os.environ.get('FAA_PASS', '').strip()
+
+    host, port, use_ssl, broker_source = _resolve_broker()
+
+    stunnel_conf = _generate_stunnel_conf(host, 'ems2.swim.faa.gov', port)
+    stunnel_proc = subprocess.Popen(['stunnel4', stunnel_conf], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(2)
+
+    listener = _ProbeListener()
+    messaging_services = []
+    receivers = []
+
+    try:
+        for var_name, label in _QUEUE_VARS.items():
+            q_val = os.environ.get(var_name, '').strip()
+            if not q_val:
+                continue
+
+            vpn_name = 'FDPS' if label == 'SFDPS' else label
+            local_port = 55004 if label == 'TFMS' else 55003
+            
+            result.queues_attempted.append(label)
+            
+            broker_props = {
+                "solace.messaging.transport.host": f"tcp://127.0.0.1:{local_port}",
+                "solace.messaging.service.vpn-name": vpn_name,
+                "solace.messaging.authentication.scheme.basic.username": faa_user,
+                "solace.messaging.authentication.scheme.basic.password": faa_pass,
+            }
+            
+            # Continuous mode uses robust retry strategy
+            retry_strategy = RetryStrategy.parametrized_retry(-1, 3000)
+            messaging_service = MessagingService.builder().from_properties(broker_props)\
+                .with_reconnection_retry_strategy(retry_strategy).build()
+            
+            handler = ServiceEventHandler()
+            messaging_service.add_reconnection_listener(handler)
+            messaging_service.add_reconnection_attempt_listener(handler)
+            messaging_service.add_service_interruption_listener(handler)
+
+            messaging_service.connect()
+            messaging_services.append(messaging_service)
+            
+            queue = Queue.durable_exclusive_queue(q_val)
+            receiver = messaging_service.create_persistent_message_receiver_builder().build(queue)
+            receiver.start()
+            receiver.receive_async(_IngestMessageHandler(label, listener, result))
+            receivers.append(receiver)
+            log.info(f"Continuous: subscribed to {label} via {vpn_name}")
+            
+        result.connected = True
+        return result, (stunnel_proc, messaging_services, receivers, listener)
+
+    except Exception as e:
+        stunnel_proc.terminate()
+        raise e
+
