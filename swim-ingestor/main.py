@@ -24,7 +24,7 @@ Environment variables (all optional for the main app):
 
   Broker address (handled internally — override only if FAA provides a different URL):
   FAA_URL                   Full broker URL (default: tcps://ems1.swim.faa.gov:55443)
-                            NOTE: 55443 is typically Solace SMF. STOMP usually requires 61614.
+                            (FlightConn uses the same Solace PubSub+ style connection pattern as Aviation Radar.)
   FAA_SWIM_BROKER_URL       Alias for FAA_URL (legacy swim.env form)
   FAA_SWIM_HOST             Hostname only (alternative to URL forms)
   FAA_SWIM_PORT             Port (default 61614 for ssl, 61613 for tcp)
@@ -113,7 +113,7 @@ def _run_config_check(log: logging.Logger) -> None:
 
     # Show broker parse result — safe to compute, no connection made
     try:
-        from connector_faa_swim import _resolve_broker
+        from connector_faa_solace import _resolve_broker
         _, port, use_ssl, source = _resolve_broker()
         log.info('  broker parse:          port=%d ssl=%s (from %s)', port, use_ssl, source)
     except ValueError as e:
@@ -167,7 +167,7 @@ def _run_probe(log: logging.Logger) -> None:
     # ── Run probe ─────────────────────────────────────────────────────────
     probe_result = None
     try:
-        from connector_faa_swim import run_probe
+        from connector_faa_solace import run_probe
         probe_result = run_probe(
             probe_seconds=probe_seconds,
             max_messages=max_messages,

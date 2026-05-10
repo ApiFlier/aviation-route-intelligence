@@ -1,8 +1,9 @@
 # FlightConn SWIM Ingestor — Phase 2A dependencies
 
-# STOMP protocol client for FAA SWIM / Solace PubSub+ broker
-# FAA SWIM SCDS uses Solace PubSub+, which supports STOMP over TLS (port 61614).
-# stomp.py is the standard lightweight Python STOMP client.
+# Solace PubSub+ Python client (primary path)
+solace-pubsubplus>=1.5.0
+
+# STOMP protocol client (advanced fallback)
 stomp.py>=8.1.0,<9.0
 
 # Pure-Python MySQL connector (no C build dependencies required)

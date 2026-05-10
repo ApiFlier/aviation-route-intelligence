@@ -264,7 +264,7 @@ cp deploy.env.example deploy.env
 - `FAA_USER`, `FAA_PASS`, and at least one `QUEUE_*` set → SWIM sidecar starts.
 - Any of those blank or missing → main app starts normally, SWIM skipped.
 
-The broker URL defaults to `tcps://ems1.swim.faa.gov:55443` (FAA SWIM SCDS production). Note: 55443 appears to be the Solace native SMF TLS port. If you are using the STOMP client, you may need a different endpoint or port (e.g., `tcps://ems1.swim.faa.gov:61614`). Override with `FAA_URL=` in `deploy.env` based on the FAA portal docs for your account.
+The broker URL defaults to `tcps://ems1.swim.faa.gov:55443` (FAA SWIM SCDS production). FlightConn uses the same Solace PubSub+ style connection pattern as Aviation Radar. FAA broker/protocol details are handled internally. Advanced protocol overrides should only be used for troubleshooting. Override with `FAA_URL=` in `deploy.env` only if FAA provides a different address for your account.
 
 ### Manual override (without setup.sh)
 
