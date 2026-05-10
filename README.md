@@ -323,7 +323,7 @@ curl http://localhost:<PORT>/api/routes/opportunities?limit=3
 ## Roadmap / Future Work
 
 - Unserved market discovery (hypothetical route scoring)
-- Real-time flight status overlay via public ADS-B feeds
+- Historical route trend analysis and year-over-year performance comparison
 - Airport congestion and delay heatmaps
 - Side-by-side carrier comparison view
 - Stage length and fuel efficiency analysis
