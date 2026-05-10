@@ -1,0 +1,5 @@
+# Phase 1: no external dependencies required.
+# The sidecar uses only Python standard library (os, sys, logging).
+#
+# Phase 2 will add the FAA SWIM broker client (STOMP or JMS connector).
+# Candidates: stomp.py, or a custom asyncio STOMP client.

@@ -1,0 +1,54 @@
+# FlightConn — Optional SWIM Ingestor Compose Override
+#
+# This file extends docker-compose.yml with an optional sidecar container
+# for FAA SWIM recent flight activity ingestion. The main app (flightconn-app)
+# does not depend on this service and runs normally without it.
+#
+# ── Usage ─────────────────────────────────────────────────────────────────────
+#
+#   1. Copy swim.env.example to swim.env and fill in FAA credentials.
+#   2. Set SWIM_ENABLED=true in swim.env.
+#   3. Start with the override:
+#
+#        docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d
+#
+#   To stop only the sidecar:
+#        docker compose -f docker-compose.yml -f docker-compose.swim.yml stop swim-ingestor
+#
+#   To rebuild only the sidecar after code changes:
+#        docker compose -f docker-compose.yml -f docker-compose.swim.yml build swim-ingestor
+#        docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d swim-ingestor
+#
+# ── Phase 1 behavior ──────────────────────────────────────────────────────────
+#
+#   The sidecar validates configuration and exits cleanly. No broker connection
+#   is attempted in Phase 1. restart: "no" is intentional — the container exits
+#   after logging its status. Phase 2 will switch to restart: on-failure once
+#   the long-running connector is implemented.
+#
+# ── swim.env ──────────────────────────────────────────────────────────────────
+#
+#   swim.env is optional. If absent, SWIM vars default to empty/disabled.
+#   swim.env must never be committed. See swim.env.example for the template.
+
+services:
+  swim-ingestor:
+    build:
+      context: swim-ingestor
+      dockerfile: Dockerfile
+    container_name: flightconn-swim-ingestor
+    env_file:
+      - path: .env
+        required: true
+      - path: swim.env
+        required: false
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: flightconn
+      DB_USER: flightconn
+      DB_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"

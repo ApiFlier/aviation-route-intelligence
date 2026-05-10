@@ -232,6 +232,35 @@ docker compose down
 
 ---
 
+## Optional FAA SWIM Recent Activity Sidecar
+
+The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely on historical public aviation datasets. No SWIM credentials or network access are required.
+
+An optional sidecar (`flightconn-swim-ingestor`) can be activated separately to ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. If enabled, it would eventually allow the app to show recently observed airport-pair activity, observed carriers, common departure windows, and historical-vs-recent carrier comparison signals.
+
+**Current status: Phase 1 scaffold only.** The schema and sidecar structure are in place, but no live broker connection is implemented yet.
+
+**The main app is not affected by whether this sidecar runs.**
+
+### Setup (when credentials are available)
+
+```bash
+# 1. Copy the env template and fill in FAA credentials
+cp swim.env.example swim.env
+# Edit swim.env: set SWIM_ENABLED=true and FAA credentials
+
+# 2. Start the main app and sidecar together
+docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d
+```
+
+FAA SWIM access requires a completed [SWIM Service Access Agreement](https://www.faa.gov/air_traffic/technology/swim). Credentials must never be committed. `swim.env` is excluded from version control.
+
+### Schema
+
+`api/Data/swim_schema.sql` contains `CREATE TABLE IF NOT EXISTS` DDL for the SWIM tables. Apply it manually when ready to activate ingestion — it does not affect existing BTS history tables.
+
+---
+
 ## Testing
 
 The app does not include an automated test suite. Manual validation after setup:
