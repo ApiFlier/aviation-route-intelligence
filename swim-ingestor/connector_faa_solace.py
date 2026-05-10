@@ -17,7 +17,7 @@ from solace.messaging.resources.queue import Queue
 from solace.messaging.config.retry_strategy import RetryStrategy
 from solace.messaging.receiver.message_receiver import MessageHandler, InboundMessage
 
-from normalizer import parse_swim_message
+from normalizer import parse_swim_message, is_route_ready
 from db import upsert_observed_flight
 
 log = logging.getLogger('swim-ingestor.connector')
@@ -41,6 +41,8 @@ class ProbeResult:
         # Phase 2B Parsing stats
         self.parsed_successfully: int = 0
         self.inserted_or_updated: int = 0
+        self.route_ready_count: int = 0
+        self.partial_count: int = 0
         self.skipped_missing_route: int = 0
         self.skipped_unknown_type: int = 0
         self.parse_errors: int = 0
@@ -109,7 +111,14 @@ class _ProbeMessageHandler(MessageHandler):
                 for rec in parsed_res['records']:
                     if rec['success']:
                         self._result.parsed_successfully += 1
-                        if upsert_observed_flight(rec['flight_data']):
+                        flight_data = rec['flight_data']
+                        
+                        if is_route_ready(flight_data):
+                            self._result.route_ready_count += 1
+                        else:
+                            self._result.partial_count += 1
+                            
+                        if upsert_observed_flight(flight_data):
                             self._result.inserted_or_updated += 1
                     else:
                         reason = rec.get('skip_reason', '')

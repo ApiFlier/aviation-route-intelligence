@@ -151,6 +151,8 @@ def start_ingestion_run(source: str) -> int:
 def upsert_observed_flight(flight_data: dict) -> bool:
     """
     Safely upsert a normalized observed_flight row.
+    Partial updates (like status-only messages) will not overwrite
+    existing non-null origin_iata, dest_iata, or aircraft_type.
     Returns True if inserted/updated, False otherwise.
     """
     if not flight_data or not flight_data.get('source_flight_id'):
@@ -167,12 +169,12 @@ def upsert_observed_flight(flight_data: dict) -> bool:
                     %(source_flight_id)s, %(data_source)s, %(callsign)s, %(carrier_code)s,
                     %(origin_iata)s, %(dest_iata)s, %(flight_status)s, %(aircraft_type)s
                 ) ON DUPLICATE KEY UPDATE
-                    callsign = VALUES(callsign),
-                    carrier_code = VALUES(carrier_code),
-                    origin_iata = VALUES(origin_iata),
-                    dest_iata = VALUES(dest_iata),
-                    flight_status = VALUES(flight_status),
-                    aircraft_type = VALUES(aircraft_type),
+                    callsign = COALESCE(VALUES(callsign), callsign),
+                    carrier_code = COALESCE(VALUES(carrier_code), carrier_code),
+                    origin_iata = COALESCE(VALUES(origin_iata), origin_iata),
+                    dest_iata = COALESCE(VALUES(dest_iata), dest_iata),
+                    flight_status = COALESCE(VALUES(flight_status), flight_status),
+                    aircraft_type = COALESCE(VALUES(aircraft_type), aircraft_type),
                     last_updated_at = CURRENT_TIMESTAMP
             '''
             cur.execute(sql, flight_data)

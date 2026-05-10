@@ -181,8 +181,9 @@ def _run_probe(log: logging.Logger) -> None:
     # ── Log safe probe summary ────────────────────────────────────────────
     if probe_result:
         if probe_result.connected:
-            log.info('Probe result: connected=yes, messages_received=%d, parsed=%d, inserted=%d, skipped=%d, parse_errors=%d',
+            log.info('Probe result: connected=yes, messages_received=%d, parsed=%d, inserted=%d, route_ready=%d, partial=%d, skipped=%d, parse_errors=%d',
                      probe_result.messages_received, probe_result.parsed_successfully, probe_result.inserted_or_updated,
+                     probe_result.route_ready_count, probe_result.partial_count,
                      probe_result.skipped_missing_route + probe_result.skipped_unknown_type, probe_result.parse_errors)
             for label, count in probe_result.counts_by_label.items():
                 log.info('  queue %s: %d message(s)', label, count)

@@ -90,12 +90,15 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
         return {'success': False, 'skip_reason': f'Missing ACID. Tags: {debug_tags}', 'message_type': local_name}
 
     if origin and len(origin) != 3:
-        return {'success': False, 'skip_reason': f'Non-IATA origin ({origin})', 'message_type': local_name}
+        origin = None # Partial fallback instead of skipping
     if dest and len(dest) != 3:
-        return {'success': False, 'skip_reason': f'Non-IATA dest ({dest})', 'message_type': local_name}
+        dest = None # Partial fallback instead of skipping
 
     carrier_code = ''.join([c for c in acid if c.isalpha()])[:3] if acid else None
 
+    # A record is considered "route-ready" if it has both valid IATA origin and destination,
+    # along with its core identifiers. Partial records are useful for status updates.
+    
     return {
         'success': True,
         'message_type': local_name,
@@ -110,6 +113,23 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
             'data_source': f'FAA_SWIM_{queue_label}'
         }
     }
+
+def is_route_ready(flight_data: dict) -> bool:
+    """
+    Check if a normalized flight record is complete enough for route aggregation.
+    Criteria:
+    - Must have source_flight_id (GUFI)
+    - Must have callsign (ACID)
+    - Must have 3-letter origin_iata
+    - Must have 3-letter dest_iata
+    """
+    if not flight_data.get('source_flight_id') or not flight_data.get('callsign'):
+        return False
+    orig = flight_data.get('origin_iata')
+    dest = flight_data.get('dest_iata')
+    if not orig or not dest or len(orig) != 3 or len(dest) != 3:
+        return False
+    return True
 
 def _recursive_unpack(queue_label: str, element: etree._Element, records: list, stats: dict):
     """Recursively unpack MessageCollection or process standard elements."""
