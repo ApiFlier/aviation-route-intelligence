@@ -136,7 +136,7 @@ def _run_config_check(log: logging.Logger) -> None:
 def _run_probe(log: logging.Logger) -> None:
     """Run bounded probe mode. Records result in swim_ingestion_runs."""
     probe_seconds  = int(_get('SWIM_PROBE_SECONDS', '30'))
-    max_messages   = int(_get('SWIM_PROBE_MAX_MESSAGES', '5'))
+    max_messages   = int(_get('SWIM_PROBE_MAX_MESSAGES', '20'))
 
     log.info('Phase 2A probe mode: %ds window, up to %d message(s).',
              probe_seconds, max_messages)
