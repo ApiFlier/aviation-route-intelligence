@@ -306,6 +306,26 @@
             line-height: 1.3;
         }
 
+        /* Recent Activity Badge */
+        .recent-activity-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-top: 8px;
+        }
+        .recent-activity-badge i { font-size: 0.75rem; }
+        .recent-activity-badge.historical_only { background: #222; color: #888; border: 1px solid #333; }
+        .recent-activity-badge.early_recent_signal { background: #0f3460; color: #00d9ff; border: 1px solid #1a4a7a; }
+        .recent-activity-badge.blend_recent_and_historical { background: #1a4a7a; color: #fff; border: 1px solid #00d9ff; }
+        .recent-activity-badge.recent_activity_primary { background: #00d9ff; color: #1a1a2e; }
+        .recent-activity-badge.mismatch { background: #f44336; color: #fff; }
+
         /* Summary */
         .card-summary {
             font-size: 0.85rem;
@@ -914,6 +934,24 @@ function renderResults(routes) {
     });
 }
 
+function getRecentBadge(ra) {
+    if (!ra || !ra.available) return '';
+    
+    let label = 'Recent Activity';
+    let mode = ra.display_mode || 'historical_only';
+    
+    if (mode === 'early_recent_signal') label = 'Early Recent Signal';
+    else if (mode === 'blend_recent_and_historical') label = 'Recent Activity Verified';
+    else if (mode === 'recent_activity_primary') label = 'Strong Recent Signal';
+    else if (mode === 'historical_only') label = 'Historical Data Primary';
+
+    if (ra.carrier_mismatch) {
+        return `<span class="recent-activity-badge mismatch"><i class="fas fa-exclamation-triangle"></i> Carrier Change Signal</span>`;
+    }
+
+    return `<span class="recent-activity-badge ${mode}"><i class="fas fa-history"></i> ${label}</span>`;
+}
+
 function buildCard(r, idx) {
     const score     = r.opportunity_score ?? 0;
     const sColor    = scoreColor(score);
@@ -923,6 +961,7 @@ function buildCard(r, idx) {
     const reasons   = r.reasons    || [];
     const risks     = r.risks      || [];
     const dataNotes = r.data_notes || [];
+    const recent    = r.recent_activity || {};
 
     const mapLink = `/?from=${encodeURIComponent(r.origin || '')}&to=${encodeURIComponent(r.destination || '')}`;
 
@@ -949,6 +988,7 @@ function buildCard(r, idx) {
     const loc = [r.origin_city, r.destination_city].filter(Boolean).join(' → ');
     const dist = r.distance ? ` · ${r.distance.toLocaleString()} mi` : '';
     html += `<div class="card-location">${esc(loc)}${dist}</div>`;
+    html += getRecentBadge(recent);
     html += `</div>`;
 
     // Score ring

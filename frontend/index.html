@@ -147,6 +147,28 @@
         
         .no-data { color: #666; font-size: 0.8rem; font-style: italic; text-align: center; padding: 10px; }
 
+        /* Recent Activity */
+        .ra-section { margin-top: 15px; background: #1a1a2e; border-radius: 6px; padding: 12px; border: 1px solid #0f3460; }
+        .ra-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .ra-title { font-size: 0.65rem; text-transform: uppercase; color: #888; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
+        .ra-title i { color: #00d9ff; }
+        .ra-badge { font-size: 0.6rem; padding: 2px 6px; border-radius: 3px; font-weight: 600; text-transform: uppercase; }
+        .ra-badge.historical_only { background: #333; color: #888; }
+        .ra-badge.early_recent_signal { background: #0f3460; color: #00d9ff; }
+        .ra-badge.blend_recent_and_historical { background: #1a4a7a; color: #fff; }
+        .ra-badge.recent_activity_primary { background: #00d9ff; color: #1a1a2e; }
+        .ra-badge.mismatch { background: #f44336; color: #fff; }
+        
+        .ra-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+        .ra-stat-box { display: flex; flex-direction: column; }
+        .ra-stat-value { font-size: 0.9rem; font-weight: 700; color: #eee; }
+        .ra-stat-label { font-size: 0.55rem; color: #666; text-transform: uppercase; margin-top: 2px; }
+        
+        .ra-note { font-size: 0.72rem; color: #aaa; margin-top: 10px; line-height: 1.4; border-top: 1px solid #0f3460; padding-top: 8px; }
+        .ra-note i { font-size: 0.65rem; margin-right: 5px; color: #00d9ff; }
+        .ra-red-flag { color: #ff9800; font-weight: 600; font-size: 0.72rem; margin-top: 5px; display: flex; align-items: flex-start; gap: 6px; }
+        .ra-red-flag i { margin-top: 2px; }
+
         .fare-season-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
         .fare-season-item { background: #1a1a2e; border-radius: 6px; padding: 8px 6px; text-align: center; border: 1px solid transparent; }
         .fare-season-item.cheapest { border-color: #00ff88; }
@@ -389,6 +411,58 @@
             return L.polyline(latlngs, { color, weight, opacity: highlight ? 0.9 : 0.5 });
         }
         
+        function getRecentActivitySection(ra) {
+            if (!ra || !ra.available) {
+                return '<div class="ra-section"><div class="ra-title"><i class="fas fa-history"></i> Recent Activity</div><div class="no-data">Recent activity data not available.</div></div>';
+            }
+            
+            let label = ra.display_mode.replace(/_/g, ' ');
+            let html = `<div class="ra-section">`;
+            html += `<div class="ra-header">`;
+            html += `<div class="ra-title"><i class="fas fa-history"></i> Recent Route Activity</div>`;
+            html += `<span class="ra-badge ${ra.display_mode}">${label}</span>`;
+            html += `</div>`;
+            
+            html += `<div class="ra-stats">`;
+            html += `<div class="ra-stat-box"><span class="ra-stat-value">${ra.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
+            html += `<div class="ra-stat-box"><span class="ra-stat-value">${ra.coverage_days}d</span><span class="ra-stat-label">Coverage</span></div>`;
+            html += `</div>`;
+            
+            if (ra.red_flags && ra.red_flags.length > 0) {
+                for (const flag of ra.red_flags) {
+                    html += `<div class="ra-red-flag"><i class="fas fa-exclamation-triangle"></i> ${flag}</div>`;
+                }
+            }
+            
+            if (ra.notes && ra.notes.length > 0) {
+                html += `<div class="ra-note"><i class="fas fa-info-circle"></i> ${ra.notes[0]}</div>`;
+            }
+            
+            html += `</div>`;
+            return html;
+        }
+
+        function getRecentActivitySummary(ras) {
+            if (!ras) return '';
+            
+            let html = `<div class="ra-section">`;
+            html += `<div class="ra-header">`;
+            html += `<div class="ra-title"><i class="fas fa-history"></i> Recent Airport Activity</div>`;
+            html += `</div>`;
+            
+            html += `<div class="ra-stats">`;
+            html += `<div class="ra-stat-box"><span class="ra-stat-value">${ras.recent_destination_count}</span><span class="ra-stat-label">Recent Destinations</span></div>`;
+            html += `<div class="ra-stat-box"><span class="ra-stat-value">${ras.total_observations}</span><span class="ra-stat-label">Total Obs.</span></div>`;
+            html += `</div>`;
+            
+            if (ras.top_recent_destinations && ras.top_recent_destinations.length > 0) {
+                html += `<div class="ra-note"><i class="fas fa-star"></i> Top Recent: ${ras.top_recent_destinations.map(d => d.dest_iata).join(', ')}</div>`;
+            }
+            
+            html += `</div>`;
+            return html;
+        }
+
         async function selectAirport(iata) {
             try {
                 const [airportData, routesData] = await Promise.all([
@@ -437,6 +511,8 @@
                 html += `<div class="stat-box"><div class="icon"><i class="fas fa-users"></i></div><div class="value">${formatNum(stats.total_passengers)}</div><div class="label">Passengers/yr</div></div>`;
                 html += `<div class="stat-box"><div class="icon"><i class="fas fa-building"></i></div><div class="value">${stats.carrier_count || 0}</div><div class="label">Airlines</div></div>`;
                 html += '</div>';
+                
+                html += getRecentActivitySummary(airportData.recent_activity_summary);
                 
                 html += `<div class="list-header"><span><i class="fas fa-plane"></i>Routes (${routesData.total})</span></div>`;
                 html += '<div class="list-container">';
@@ -531,6 +607,8 @@
                     html += `<div class="stat-box green"><div class="icon"><i class="fas fa-percentage"></i></div><div class="value">${loadFactor}%</div><div class="label">Load Factor</div></div>`;
                     html += '</div>';
                 }
+                
+                html += getRecentActivitySection(carriersData.recent_activity_context);
                 
                 // Build a map of latest-quarter fare per carrier for inline display
                 const latestFareMap = {};
