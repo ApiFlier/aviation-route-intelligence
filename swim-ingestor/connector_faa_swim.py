@@ -299,7 +299,7 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
         conn = stomp.Connection(
             host_and_ports=[(host, port)],
             heartbeats=(heartbeat_ms, heartbeat_ms),
-            reconnect_attempts_max=0,   # Probe: no reconnect on failure
+            reconnect_attempts_max=1,   # Probe: 1 attempt, no infinite reconnect on failure
         )
         if use_ssl:
             conn.set_ssl(for_hosts=[(host, port)])
