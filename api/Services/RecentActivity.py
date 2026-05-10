@@ -3,8 +3,24 @@ Recent Activity Service
 Provides read-only access to aggregated FAA SWIM data.
 """
 
+import json
 import logging
 from Classes.Database import get_db
+
+
+def _parse_json_list(value):
+    """Safely parse a JSON array column that MySQLdb returns as a string."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+    return []
 
 log = logging.getLogger('api.services.recent_activity')
 
@@ -46,7 +62,7 @@ def get_route_recent_activity(origin, destination):
         "commercial_confidence": row['commercial_confidence'],
         "coverage_days": row['coverage_days'],
         "observation_count": row['observation_count'],
-        "observed_carriers": row['observed_carriers'] if isinstance(row['observed_carriers'], list) else [],
+        "observed_carriers": _parse_json_list(row['observed_carriers']),
         "carrier_count_observed": row['carrier_count_observed'],
         "common_dep_days": row['common_dep_days'],
         "common_dep_windows": row['common_dep_windows'],
