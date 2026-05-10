@@ -197,7 +197,7 @@ done
 SWIM_READY=false
 if [ -n "$FAA_USER_VAL" ] && [ -n "$FAA_PASS_VAL" ] && [ "$QUEUE_OK" = "true" ]; then
     SWIM_READY=true
-    SWIM_STATUS="Enabled for bounded probe, queues configured: $SWIM_QUEUE_LABELS."
+    SWIM_STATUS="Enabled for continuous ingestion, queues configured: $SWIM_QUEUE_LABELS."
 elif [ -z "$FAA_USER_VAL" ] && [ -z "$FAA_PASS_VAL" ]; then
     SWIM_STATUS="Disabled, no FAA credentials configured."
 else

@@ -103,7 +103,18 @@ def _log_redacted_config(log: logging.Logger) -> None:
     log.info('  password present:      %s', 'yes' if _present('FAA_PASS') else 'no')
     log.info('  queues configured:     %s',
              ', '.join(configured_queues) if configured_queues else 'none')
-    log.info('  SWIM_PROBE_ONLY:       %s', _get('SWIM_PROBE_ONLY', 'true'))
+    
+    # Mode detection for logging
+    mode = _get('SWIM_MODE', '').lower()
+    if not mode:
+        if _get('SWIM_PROBE_ONLY', '').lower() == 'true':
+            mode = 'probe'
+        elif _get('SWIM_PROBE_ONLY', '').lower() == 'false':
+            mode = 'continuous'
+        else:
+            mode = 'continuous (auto-detected)'
+    
+    log.info('  SWIM_MODE:             %s', mode)
     log.info('  SWIM_LOG_LEVEL:        %s', _get('SWIM_LOG_LEVEL', 'INFO'))
 
 
@@ -445,7 +456,16 @@ def main() -> None:
 
     log.info('All required SWIM configuration is present.')
 
-    probe_only = _get('SWIM_PROBE_ONLY', 'true').strip().lower() != 'false'
+    # Determine mode: Default is continuous if credentials are OK.
+    # SWIM_MODE=probe or SWIM_PROBE_ONLY=true overrides to probe mode.
+    mode = _get('SWIM_MODE', '').lower()
+    if mode == 'probe':
+        probe_only = True
+    elif mode == 'continuous':
+        probe_only = False
+    else:
+        # Fallback to legacy SWIM_PROBE_ONLY if SWIM_MODE is unset
+        probe_only = _get('SWIM_PROBE_ONLY', 'false').lower() == 'true'
 
     if probe_only:
         _run_probe(log)
