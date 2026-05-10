@@ -12,30 +12,44 @@
 #
 #        docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d
 #
-#   To stop only the sidecar:
-#        docker compose -f docker-compose.yml -f docker-compose.swim.yml stop swim-ingestor
+#   Probe only (safe, exits after a short window):
+#        docker compose -f docker-compose.yml -f docker-compose.swim.yml \
+#            run --rm swim-ingestor
+#        (Set SWIM_PROBE_ONLY=true in swim.env for probe mode)
 #
-#   To rebuild only the sidecar after code changes:
-#        docker compose -f docker-compose.yml -f docker-compose.swim.yml build swim-ingestor
-#        docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d swim-ingestor
+#   Apply schema only:
+#        docker compose -f docker-compose.yml -f docker-compose.swim.yml \
+#            run --rm swim-ingestor python apply_schema.py
 #
-# ── Phase 1 behavior ──────────────────────────────────────────────────────────
+#   Rebuild sidecar after code changes:
+#        docker compose -f docker-compose.yml -f docker-compose.swim.yml \
+#            build swim-ingestor
 #
-#   The sidecar validates configuration and exits cleanly. No broker connection
-#   is attempted in Phase 1. restart: "no" is intentional — the container exits
-#   after logging its status. Phase 2 will switch to restart: on-failure once
-#   the long-running connector is implemented.
+#   Stop sidecar only:
+#        docker compose -f docker-compose.yml -f docker-compose.swim.yml \
+#            stop swim-ingestor
 #
 # ── swim.env ──────────────────────────────────────────────────────────────────
 #
 #   swim.env is optional. If absent, SWIM vars default to empty/disabled.
 #   swim.env must never be committed. See swim.env.example for the template.
+#
+# ── Build context ─────────────────────────────────────────────────────────────
+#
+#   Build context is the repo root (.) so swim_schema.sql can be included
+#   in the Docker image for apply_schema.py to use inside the container.
+#
+# ── Restart policy ────────────────────────────────────────────────────────────
+#
+#   restart: "no" — intentional for Phase 2A.
+#   The probe exits after a bounded window. Phase 2B (continuous ingestion)
+#   will switch to restart: on-failure with internal reconnect/backoff logic.
 
 services:
   swim-ingestor:
     build:
-      context: swim-ingestor
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: swim-ingestor/Dockerfile
     container_name: flightconn-swim-ingestor
     env_file:
       - path: .env

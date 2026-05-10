@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 """
-FlightConn SWIM Ingestor — Phase 1 Scaffold
+FlightConn SWIM Ingestor
 
 Optional sidecar for FAA SWIM recent flight activity ingestion.
-This phase validates configuration and exits. The live connector
-is not implemented yet and will be added in Phase 2.
+
+Behavior by configuration:
+  SWIM_ENABLED != true          → exits 0, no connection attempted
+  SWIM_ENABLED=true, missing config → exits 0, logs what is missing
+  SWIM_ENABLED=true, SWIM_PROBE_ONLY=true → runs bounded probe, records result, exits 0
+  SWIM_ENABLED=true, full config, no probe flag → logs Phase 2B not ready, exits 0
 
 Environment variables (all optional for the main app):
-    SWIM_ENABLED            Master switch — must be 'true' to activate
-    FAA_USER                FAA SWIM account username
-    FAA_PASS                FAA SWIM account password
-    FAA_SWIM_BROKER_URL     Broker URL (provided after FAA SAA approval)
-    QUEUE_SFDPS             SWIM SFDPS queue name
-    QUEUE_STDDS             SWIM STDDS queue name
-    QUEUE_TFMS              SWIM TFMS queue name
-    SWIM_LOOKBACK_DAYS      Days of history to consider current (default 30)
-    SWIM_RETENTION_DAYS     Days to retain normalized flight events (default 35)
-    SWIM_RAW_RETENTION_DAYS Days to retain raw source messages (default 14)
-    SWIM_LOG_LEVEL          Logging level (default INFO)
+  SWIM_ENABLED              Master switch — must be 'true' to activate
+  FAA_USER                  FAA SWIM account username
+  FAA_PASS                  FAA SWIM account password
+  FAA_SWIM_BROKER_URL       Broker URL (from FAA after SAA approval)
+  QUEUE_SFDPS               SWIM SFDPS queue name (from FAA)
+  QUEUE_STDDS               SWIM STDDS queue name (from FAA)
+  QUEUE_TFMS                SWIM TFMS queue name (from FAA)
+  SWIM_PROBE_ONLY           If 'true', run bounded probe and exit
+  SWIM_PROBE_SECONDS        Probe timeout in seconds (default 30)
+  SWIM_PROBE_MAX_MESSAGES   Max messages to receive in probe (default 5)
+  SWIM_SSL_VERIFY           Set 'false' to skip TLS cert check (testing only)
+  SWIM_DEST_PREFIX          Queue destination prefix (default /queue/)
+  SWIM_LOOKBACK_DAYS        Days of history to consider current (default 30)
+  SWIM_RETENTION_DAYS       Days to retain normalized flight events (default 35)
+  SWIM_RAW_RETENTION_DAYS   Days to retain raw source messages (default 14)
+  SWIM_LOG_LEVEL            Logging level (default INFO)
 """
 
 import os
@@ -28,7 +37,6 @@ _QUEUE_VARS = ('QUEUE_SFDPS', 'QUEUE_STDDS', 'QUEUE_TFMS')
 
 
 def _present(name: str) -> bool:
-    """Return True if the named env var is set and non-empty."""
     return bool(os.environ.get(name, '').strip())
 
 
@@ -48,6 +56,119 @@ def _setup_logging() -> logging.Logger:
     return logging.getLogger('swim-ingestor')
 
 
+def _log_redacted_config(log: logging.Logger) -> None:
+    configured_queues = [q for q in _QUEUE_VARS if _present(q)]
+    log.info('SWIM configuration summary:')
+    log.info('  SWIM_ENABLED:          true')
+    log.info('  broker URL present:    %s', 'yes' if _present('FAA_SWIM_BROKER_URL') else 'no')
+    log.info('  username present:      %s', 'yes' if _present('FAA_USER') else 'no')
+    log.info('  password present:      %s', 'yes' if _present('FAA_PASS') else 'no')
+    log.info('  queues configured:     %s',
+             ', '.join(configured_queues) if configured_queues else 'none')
+    log.info('  SWIM_PROBE_ONLY:       %s', _get('SWIM_PROBE_ONLY', 'false'))
+    log.info('  SWIM_LOG_LEVEL:        %s', _get('SWIM_LOG_LEVEL', 'INFO'))
+
+
+def _validate_config(log: logging.Logger) -> list:
+    """Return a list of missing required config items."""
+    missing = []
+    if not _present('FAA_USER'):
+        missing.append('FAA_USER')
+    if not _present('FAA_PASS'):
+        missing.append('FAA_PASS')
+    if not any(_present(q) for q in _QUEUE_VARS):
+        missing.append('at least one of: ' + ', '.join(_QUEUE_VARS))
+    return missing
+
+
+def _run_probe(log: logging.Logger) -> None:
+    """Run bounded probe mode. Records result in swim_ingestion_runs."""
+    probe_seconds  = int(_get('SWIM_PROBE_SECONDS', '30'))
+    max_messages   = int(_get('SWIM_PROBE_MAX_MESSAGES', '5'))
+
+    log.info('Phase 2A probe mode: %ds window, up to %d message(s).',
+             probe_seconds, max_messages)
+
+    # ── Ensure schema is applied ──────────────────────────────────────────
+    try:
+        from db import apply_schema
+        schema_results = apply_schema()
+        for tbl, status in schema_results.items():
+            if status == 'created':
+                log.info('Schema: created table %s', tbl)
+            elif status == 'missing':
+                log.warning('Schema: table %s still missing after apply', tbl)
+    except Exception as e:
+        log.warning('Schema apply failed (continuing probe): %s: %s',
+                    type(e).__name__, str(e)[:200])
+
+    # ── Start ingestion run record ────────────────────────────────────────
+    run_id = None
+    try:
+        from db import start_ingestion_run
+        run_id = start_ingestion_run('FAA_SWIM_PROBE')
+        log.info('Ingestion run started: id=%d', run_id)
+    except Exception as e:
+        log.warning('Could not start ingestion run record: %s: %s',
+                    type(e).__name__, str(e)[:200])
+
+    # ── Run probe ─────────────────────────────────────────────────────────
+    probe_result = None
+    try:
+        from connector_faa_swim import run_probe
+        probe_result = run_probe(
+            probe_seconds=probe_seconds,
+            max_messages=max_messages,
+        )
+    except ImportError as e:
+        log.error('Cannot import connector: %s', e)
+        log.error('Ensure stomp.py is installed: pip install stomp.py')
+    except Exception as e:
+        log.error('Probe raised unexpected error: %s: %s', type(e).__name__, str(e)[:200])
+
+    # ── Log safe probe summary ────────────────────────────────────────────
+    if probe_result:
+        if probe_result.connected:
+            log.info('Probe result: connected=yes, messages_received=%d',
+                     probe_result.messages_received)
+            for label, count in probe_result.counts_by_label.items():
+                log.info('  queue %s: %d message(s)', label, count)
+            for meta in probe_result.messages_metadata:
+                log.info(
+                    '  msg: queue=%s received_at=%s payload_bytes=%d '
+                    'content_type=%s msg_type=%s',
+                    meta['queue_label'],
+                    meta['received_at'],
+                    meta['payload_bytes'],
+                    meta['content_type'],
+                    meta['msg_type'],
+                )
+        else:
+            log.warning('Probe result: connected=no. error=%s',
+                        probe_result.error_summary or '(unknown)')
+            for err in probe_result.errors:
+                log.warning('  error detail: %s', err)
+
+    # ── Finish ingestion run record ───────────────────────────────────────
+    if run_id is not None:
+        try:
+            from db import finish_ingestion_run
+            counts = {
+                'messages_recv':  probe_result.messages_received if probe_result else 0,
+                'messages_ok':    probe_result.messages_received if probe_result else 0,
+                'messages_err':   len(probe_result.errors) if probe_result else 1,
+                'flights_new':    0,
+                'flights_updated': 0,
+            }
+            status = 'completed' if (probe_result and probe_result.connected) else 'failed'
+            error_detail = (probe_result.error_summary if probe_result else 'probe did not run')
+            finish_ingestion_run(run_id, status, counts, error_detail or None)
+            log.info('Ingestion run %d recorded as %s.', run_id, status)
+        except Exception as e:
+            log.warning('Could not finish ingestion run record: %s: %s',
+                        type(e).__name__, str(e)[:200])
+
+
 def main() -> None:
     log = _setup_logging()
 
@@ -57,28 +178,9 @@ def main() -> None:
         log.info('SWIM ingestion is disabled (SWIM_ENABLED != true). Exiting.')
         sys.exit(0)
 
-    # ── Redacted config summary — values are never logged ────────────────────
-    configured_queues = [q for q in _QUEUE_VARS if _present(q)]
-    log.info('SWIM configuration summary:')
-    log.info('  SWIM_ENABLED:          true')
-    log.info('  broker URL present:    %s', 'yes' if _present('FAA_SWIM_BROKER_URL') else 'no')
-    log.info('  username present:      %s', 'yes' if _present('FAA_USER') else 'no')
-    log.info('  password present:      %s', 'yes' if _present('FAA_PASS') else 'no')
-    log.info('  queues configured:     %s',
-             ', '.join(configured_queues) if configured_queues else 'none')
-    log.info('  SWIM_LOOKBACK_DAYS:    %s', _get('SWIM_LOOKBACK_DAYS', '30'))
-    log.info('  SWIM_RETENTION_DAYS:   %s', _get('SWIM_RETENTION_DAYS', '35'))
-    log.info('  SWIM_RAW_RETENTION_DAYS: %s', _get('SWIM_RAW_RETENTION_DAYS', '14'))
+    _log_redacted_config(log)
 
-    # ── Validate required config ──────────────────────────────────────────────
-    missing = []
-    if not _present('FAA_USER'):
-        missing.append('FAA_USER')
-    if not _present('FAA_PASS'):
-        missing.append('FAA_PASS')
-    if not configured_queues:
-        missing.append('at least one of: ' + ', '.join(_QUEUE_VARS))
-
+    missing = _validate_config(log)
     if missing:
         log.warning('SWIM_ENABLED=true but required configuration is missing:')
         for item in missing:
@@ -89,13 +191,19 @@ def main() -> None:
         )
         sys.exit(0)
 
-    # ── Phase 1: connector not implemented ───────────────────────────────────
     log.info('All required SWIM configuration is present.')
-    log.info('SWIM connector not implemented yet. Phase 1 scaffold only.')
-    log.info(
-        'Phase 2 will implement FAA SWIM broker connection, '
-        'message normalization, and database writes.'
-    )
+
+    probe_only = _get('SWIM_PROBE_ONLY', 'false').strip().lower() == 'true'
+
+    if probe_only:
+        _run_probe(log)
+        log.info('Probe complete. Exiting.')
+        sys.exit(0)
+
+    # Full ingestion not implemented yet
+    log.info('SWIM_PROBE_ONLY is not set.')
+    log.info('Full continuous ingestion is not implemented yet (Phase 2B).')
+    log.info('To run a bounded probe, set SWIM_PROBE_ONLY=true.')
     sys.exit(0)
 
 

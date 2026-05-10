@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS observed_flight_events (
 --
 -- These are the tables the Flask app actually queries.
 -- Populated and refreshed by the sidecar aggregator (Phase 3).
--- The app reads these; it never reads observed_flights directly.
+-- The app reads these — it never reads observed_flights directly.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- Route-level recent activity summary.

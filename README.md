@@ -236,28 +236,44 @@ docker compose down
 
 The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely on historical public aviation datasets. No SWIM credentials or network access are required.
 
-An optional sidecar (`flightconn-swim-ingestor`) can be activated separately to ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. If enabled, it would eventually allow the app to show recently observed airport-pair activity, observed carriers, common departure windows, and historical-vs-recent carrier comparison signals.
+An optional sidecar (`flightconn-swim-ingestor`) can be activated separately to ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. If enabled, it will allow the app to show recently observed airport-pair activity, observed carriers, common departure windows, and historical-vs-recent carrier comparison signals.
 
-**Current status: Phase 1 scaffold only.** The schema and sidecar structure are in place, but no live broker connection is implemented yet.
+**Current status: Phase 2A — connection probe.** The sidecar can connect to the FAA SWIM broker and run a bounded probe session when `SWIM_PROBE_ONLY=true`. Full continuous ingestion is not implemented yet. No raw message payloads are logged.
 
 **The main app is not affected by whether this sidecar runs.**
 
-### Setup (when credentials are available)
+### Probe mode (validate credentials and queue access)
 
 ```bash
 # 1. Copy the env template and fill in FAA credentials
 cp swim.env.example swim.env
-# Edit swim.env: set SWIM_ENABLED=true and FAA credentials
+# Edit swim.env: set SWIM_ENABLED=true, FAA_USER, FAA_PASS,
+#   FAA_SWIM_BROKER_URL, at least one QUEUE_*, and SWIM_PROBE_ONLY=true
 
-# 2. Start the main app and sidecar together
+# 2. Run a bounded probe (exits after SWIM_PROBE_SECONDS or SWIM_PROBE_MAX_MESSAGES)
+docker compose -f docker-compose.yml -f docker-compose.swim.yml \
+    run --rm swim-ingestor
+```
+
+### Apply schema
+
+```bash
+# Apply SWIM tables to the database (safe to run multiple times)
+docker compose -f docker-compose.yml -f docker-compose.swim.yml \
+    run --rm swim-ingestor python apply_schema.py
+```
+
+### Start with main app
+
+```bash
 docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d
 ```
 
-FAA SWIM access requires a completed [SWIM Service Access Agreement](https://www.faa.gov/air_traffic/technology/swim). Credentials must never be committed. `swim.env` is excluded from version control.
+FAA SWIM access requires a completed [SWIM Service Access Agreement](https://www.faa.gov/air_traffic/technology/swim). Credentials must never be committed. `swim.env` is excluded from version control. No raw message payloads are logged or stored during probe mode.
 
 ### Schema
 
-`api/Data/swim_schema.sql` contains `CREATE TABLE IF NOT EXISTS` DDL for the SWIM tables. Apply it manually when ready to activate ingestion — it does not affect existing BTS history tables.
+`api/Data/swim_schema.sql` contains `CREATE TABLE IF NOT EXISTS` DDL for all SWIM tables. It does not alter existing BTS history tables and is safe to re-run.
 
 ---
 

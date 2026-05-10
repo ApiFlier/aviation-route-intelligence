@@ -1,5 +1,9 @@
-# Phase 1: no external dependencies required.
-# The sidecar uses only Python standard library (os, sys, logging).
-#
-# Phase 2 will add the FAA SWIM broker client (STOMP or JMS connector).
-# Candidates: stomp.py, or a custom asyncio STOMP client.
+# FlightConn SWIM Ingestor — Phase 2A dependencies
+
+# STOMP protocol client for FAA SWIM / Solace PubSub+ broker
+# FAA SWIM SCDS uses Solace PubSub+, which supports STOMP over TLS (port 61614).
+# stomp.py is the standard lightweight Python STOMP client.
+stomp.py>=8.1.0,<9.0
+
+# Pure-Python MySQL connector (no C build dependencies required)
+PyMySQL>=1.1.0,<2.0
