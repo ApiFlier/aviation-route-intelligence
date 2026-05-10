@@ -103,7 +103,7 @@ def _log_redacted_config(log: logging.Logger) -> None:
     log.info('  password present:      %s', 'yes' if _present('FAA_PASS') else 'no')
     log.info('  queues configured:     %s',
              ', '.join(configured_queues) if configured_queues else 'none')
-    log.info('  SWIM_PROBE_ONLY:       %s', _get('SWIM_PROBE_ONLY', 'false'))
+    log.info('  SWIM_PROBE_ONLY:       %s', _get('SWIM_PROBE_ONLY', 'true'))
     log.info('  SWIM_LOG_LEVEL:        %s', _get('SWIM_LOG_LEVEL', 'INFO'))
 
 
