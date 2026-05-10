@@ -298,11 +298,12 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
     try:
         conn = stomp.Connection(
             host_and_ports=[(host, port)],
-            use_ssl=use_ssl,
-            ssl_context=ssl_context if use_ssl else None,
             heartbeats=(heartbeat_ms, heartbeat_ms),
             reconnect_attempts_max=0,   # Probe: no reconnect on failure
         )
+        if use_ssl:
+            conn.set_ssl(for_hosts=[(host, port)])
+
         conn.set_listener('probe', listener)
 
         log.info('Connecting to SWIM broker...')
