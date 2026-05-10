@@ -93,6 +93,36 @@
             padding: 20px 20px 40px;
         }
 
+        /* ── Airport autocomplete ────────────────────────────────── */
+        .ac-wrap { position: relative; }
+        .ac-dropdown {
+            position: absolute;
+            top: calc(100% + 3px);
+            left: 0;
+            right: 0;
+            background: #16213e;
+            border: 1px solid #00d9ff;
+            border-radius: 5px;
+            z-index: 200;
+            max-height: 220px;
+            overflow-y: auto;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+        }
+        .ac-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            border-bottom: 1px solid #0f3460;
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+        .ac-item:last-child { border-bottom: none; }
+        .ac-item:hover, .ac-item.ac-active { background: rgba(0,217,255,0.12); }
+        .ac-iata { font-weight: 700; color: #00d9ff; font-size: 0.88rem; min-width: 32px; }
+        .ac-name { color: #ccc; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ac-loc  { color: #555; font-size: 0.75rem; white-space: nowrap; }
+
         /* ── Filter panel ─────────────────────────────────────────── */
         .filter-panel {
             background: #16213e;
@@ -482,19 +512,41 @@
         <div class="filter-grid">
             <div class="filter-group">
                 <label for="f-origin">Origin</label>
-                <input id="f-origin" class="filter-input" type="text" maxlength="3"
-                       placeholder="e.g. ATL" autocomplete="off" spellcheck="false">
+                <div class="ac-wrap">
+                    <input id="f-origin" class="filter-input" type="text" maxlength="4"
+                           placeholder="e.g. ATL or Pittsburgh" autocomplete="off"
+                           spellcheck="false" aria-autocomplete="list" aria-expanded="false">
+                    <div id="ac-origin-dropdown" class="ac-dropdown" style="display:none;"
+                         role="listbox" aria-label="Airport suggestions"></div>
+                </div>
             </div>
             <div class="filter-group">
                 <label for="f-origin-state">Origin State</label>
                 <input id="f-origin-state" class="filter-input" type="text" maxlength="2"
-                       placeholder="e.g. PA" autocomplete="off" spellcheck="false">
+                       placeholder="e.g. PA" autocomplete="off" spellcheck="false"
+                       list="us-states-list">
             </div>
             <div class="filter-group">
                 <label for="f-dest-state">Dest State</label>
                 <input id="f-dest-state" class="filter-input" type="text" maxlength="2"
-                       placeholder="e.g. TX" autocomplete="off" spellcheck="false">
+                       placeholder="e.g. TX" autocomplete="off" spellcheck="false"
+                       list="us-states-list">
             </div>
+            <datalist id="us-states-list">
+                <option value="AL"><option value="AK"><option value="AZ"><option value="AR">
+                <option value="CA"><option value="CO"><option value="CT"><option value="DE">
+                <option value="FL"><option value="GA"><option value="HI"><option value="ID">
+                <option value="IL"><option value="IN"><option value="IA"><option value="KS">
+                <option value="KY"><option value="LA"><option value="ME"><option value="MD">
+                <option value="MA"><option value="MI"><option value="MN"><option value="MS">
+                <option value="MO"><option value="MT"><option value="NE"><option value="NV">
+                <option value="NH"><option value="NJ"><option value="NM"><option value="NY">
+                <option value="NC"><option value="ND"><option value="OH"><option value="OK">
+                <option value="OR"><option value="PA"><option value="RI"><option value="SC">
+                <option value="SD"><option value="TN"><option value="TX"><option value="UT">
+                <option value="VT"><option value="VA"><option value="WA"><option value="WV">
+                <option value="WI"><option value="WY">
+            </datalist>
             <div class="filter-group">
                 <label for="f-min-dist">Min Miles</label>
                 <input id="f-min-dist" class="filter-input" type="number" min="0"
@@ -559,6 +611,124 @@
 <script src="/config.js"></script>
 <script src="/js/api.js"></script>
 <script>
+// ── Airport autocomplete ──────────────────────────────────────────────────────
+
+(function () {
+    const input    = document.getElementById('f-origin');
+    const dropdown = document.getElementById('ac-origin-dropdown');
+    let debounceTimer = null;
+    let activeIdx = -1;
+    let currentItems = [];
+
+    function escText(v) {
+        if (v == null) return '';
+        return String(v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function closeDropdown() {
+        dropdown.style.display = 'none';
+        dropdown.innerHTML = '';
+        input.setAttribute('aria-expanded', 'false');
+        activeIdx = -1;
+        currentItems = [];
+    }
+
+    function selectItem(iata) {
+        input.value = iata;
+        closeDropdown();
+        input.dispatchEvent(new Event('change'));
+    }
+
+    function setActive(idx) {
+        const items = dropdown.querySelectorAll('.ac-item');
+        items.forEach((el, i) => {
+            el.classList.toggle('ac-active', i === idx);
+        });
+        activeIdx = idx;
+    }
+
+    function renderDropdown(airports) {
+        dropdown.innerHTML = '';
+        currentItems = airports;
+        if (airports.length === 0) { closeDropdown(); return; }
+
+        airports.forEach((ap, i) => {
+            const item = document.createElement('div');
+            item.className = 'ac-item';
+            item.setAttribute('role', 'option');
+            const loc = [ap.city, ap.state].filter(Boolean).join(', ');
+            item.innerHTML =
+                '<span class="ac-iata">' + escText(ap.iata) + '</span>' +
+                '<span class="ac-name">' + escText(ap.name) + '</span>' +
+                (loc ? '<span class="ac-loc">' + escText(loc) + '</span>' : '');
+            item.addEventListener('mousedown', function (e) {
+                e.preventDefault();
+                selectItem(ap.iata);
+            });
+            dropdown.appendChild(item);
+        });
+
+        dropdown.style.display = 'block';
+        input.setAttribute('aria-expanded', 'true');
+        activeIdx = -1;
+    }
+
+    async function fetchSuggestions(q) {
+        if (!q || q.length < 2) { closeDropdown(); return; }
+        try {
+            const res = await fetch(
+                CONFIG.API_URL + '/airports?q=' + encodeURIComponent(q) + '&limit=8'
+            );
+            if (!res.ok) { closeDropdown(); return; }
+            const data = await res.json();
+            const airports = (data.airports || []).filter(ap => ap.route_count > 0);
+            renderDropdown(airports);
+        } catch (_) {
+            closeDropdown();
+        }
+    }
+
+    input.addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        const q = input.value.trim();
+        if (q.length < 2) { closeDropdown(); return; }
+        debounceTimer = setTimeout(function () { fetchSuggestions(q); }, 200);
+    });
+
+    input.addEventListener('keydown', function (e) {
+        const items = dropdown.querySelectorAll('.ac-item');
+        if (!items.length) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActive(Math.min(activeIdx + 1, items.length - 1));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActive(Math.max(activeIdx - 1, 0));
+        } else if (e.key === 'Enter' && activeIdx >= 0) {
+            e.preventDefault();
+            if (currentItems[activeIdx]) selectItem(currentItems[activeIdx].iata);
+        } else if (e.key === 'Escape') {
+            closeDropdown();
+        }
+    });
+
+    // Close when focus leaves
+    document.addEventListener('click', function (e) {
+        if (!input.contains(e.target) && !dropdown.contains(e.target)) closeDropdown();
+    });
+
+    // If user typed a valid 3-letter IATA directly, allow it without needing a suggestion
+    input.addEventListener('blur', function () {
+        // Small delay so mousedown on a suggestion fires first
+        setTimeout(function () {
+            const v = input.value.trim().toUpperCase();
+            if (v.length === 3) input.value = v;
+        }, 150);
+    });
+}());
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function esc(v) {
@@ -628,8 +798,12 @@ async function fetchOpportunities(params) {
 function getFilterParams() {
     const s = (id) => document.getElementById(id).value.trim().toUpperCase();
     const n = (id) => { const v = document.getElementById(id).value.trim(); return v === '' ? null : parseInt(v, 10); };
+    // Origin must be a 3-letter IATA code. If the user typed a city name without
+    // selecting a suggestion, ignore it rather than sending an invalid code.
+    const rawOrigin = s('f-origin');
+    const origin = /^[A-Z]{3}$/.test(rawOrigin) ? rawOrigin : null;
     return {
-        origin:         s('f-origin')       || null,
+        origin:         origin,
         origin_state:   s('f-origin-state') || null,
         dest_state:     s('f-dest-state')   || null,
         min_distance:   n('f-min-dist'),

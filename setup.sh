@@ -4,6 +4,7 @@ set -e
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$REPO_DIR/docker-compose.yml"
 ENV_FILE="$REPO_DIR/.env"
+DEPLOY_ENV="$REPO_DIR/deploy.env"
 BACKUP="$REPO_DIR/api/Data/db_backup.sql.gz"
 
 echo "============================================="
@@ -11,6 +12,19 @@ echo "  FlightConn Setup"
 echo "============================================="
 echo "  Repo: $REPO_DIR"
 echo ""
+
+# ── Load deploy.env if present ────────────────────────────────────────
+# deploy.env is the user-supplied config file (port pin, SWIM credentials).
+# It is never generated or modified by setup.sh.
+ENABLE_SWIM_INGESTOR=false
+if [ -f "$DEPLOY_ENV" ]; then
+    echo "==> Loading deploy.env..."
+    set -a
+    # shellcheck disable=SC1090
+    source "$DEPLOY_ENV"
+    set +a
+    echo "    ENABLE_SWIM_INGESTOR=${ENABLE_SWIM_INGESTOR}"
+fi
 
 # Verify docker-compose.yml exists
 if [ ! -f "$COMPOSE_FILE" ]; then
@@ -168,6 +182,42 @@ set -a
 source "$ENV_FILE"
 set +a
 
+# ── Validate SWIM credentials if ENABLE_SWIM_INGESTOR=true ────────────
+if [ "$ENABLE_SWIM_INGESTOR" = "true" ]; then
+    echo ""
+    echo "==> SWIM ingestor enabled. Validating SWIM configuration..."
+    SWIM_MISSING=false
+    for VAR in FAA_USER FAA_PASS; do
+        VAL=$(printenv "$VAR" 2>/dev/null || true)
+        if [ -z "$VAL" ]; then
+            echo "    ERROR: $VAR is required when ENABLE_SWIM_INGESTOR=true but is not set." >&2
+            SWIM_MISSING=true
+        else
+            echo "    $VAR: present"
+        fi
+    done
+    # At least one queue name must be set
+    QUEUE_OK=false
+    for Q in QUEUE_SFDPS QUEUE_STDDS QUEUE_TFMS; do
+        QVAL=$(printenv "$Q" 2>/dev/null || true)
+        if [ -n "$QVAL" ]; then
+            QUEUE_OK=true
+            echo "    $Q: present"
+        fi
+    done
+    if [ "$QUEUE_OK" = "false" ]; then
+        echo "    ERROR: At least one of QUEUE_SFDPS, QUEUE_STDDS, QUEUE_TFMS is required when ENABLE_SWIM_INGESTOR=true." >&2
+        SWIM_MISSING=true
+    fi
+    if [ "$SWIM_MISSING" = "true" ]; then
+        echo ""
+        echo "    Set missing values in deploy.env and re-run ./setup.sh." >&2
+        echo "    SWIM credentials must never be committed to version control." >&2
+        exit 1
+    fi
+    echo "    SWIM configuration is valid."
+fi
+
 # Build and start containers
 echo ""
 echo "==> Building and starting containers..."
@@ -301,6 +351,17 @@ if [ "$APP_OK" = false ]; then
     echo "    Try: docker compose logs app"
 fi
 
+# ── Optionally start the SWIM sidecar ─────────────────────────────────
+SWIM_COMPOSE="$REPO_DIR/docker-compose.swim.yml"
+if [ "$ENABLE_SWIM_INGESTOR" = "true" ] && [ -f "$SWIM_COMPOSE" ]; then
+    echo ""
+    echo "==> Starting optional SWIM ingestor sidecar..."
+    cd "$REPO_DIR"
+    docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d swim-ingestor
+    echo "    SWIM sidecar started. View logs:"
+    echo "      docker compose -f docker-compose.yml -f docker-compose.swim.yml logs -f swim-ingestor"
+fi
+
 # Summary
 echo ""
 echo "============================================="
@@ -318,6 +379,11 @@ echo "  - Database: Stored in a Docker named volume (flightconn_mysql)."
 echo "  - Persistence: Data persists even if containers are stopped or removed."
 echo "  - WARNING: Never run 'docker compose down -v' unless you want to WIPE the database."
 echo "  - Repository: Local files are only needed for rebuilding (./update.sh) or setup."
+if [ "$ENABLE_SWIM_INGESTOR" = "true" ]; then
+    echo "  - SWIM: Ingestor sidecar is running. Credentials loaded from deploy.env."
+else
+    echo "  - SWIM: Disabled. To enable, set ENABLE_SWIM_INGESTOR=true in deploy.env."
+fi
 echo ""
 echo "Useful commands:"
 echo "  ./update.sh          # Rebuild after code changes (auto-backups first)"

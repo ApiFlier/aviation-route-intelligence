@@ -15,6 +15,7 @@ chmod +x setup.sh
 
 `setup.sh` handles everything automatically:
 - Generates `.env` with random credentials (no manual config needed)
+- If `deploy.env` is present, imports user-supplied values (port, SWIM credentials)
 - Builds Docker containers (`flightconn-app`, `flightconn-db`)
 - Creates or reuses the Docker-managed persistent volume `flightconn_mysql`
 - Finds an available host port automatically (starting at 8082) and saves it to `.env`
@@ -22,7 +23,7 @@ chmod +x setup.sh
 - Verifies all key tables and runs a live health check
 - **Prints the local URL** when the app is ready
 
-No external API keys or network access required at runtime.
+No external API keys or network access required at runtime. The optional FAA SWIM sidecar is disabled by default.
 
 ---
 
@@ -215,6 +216,7 @@ The bundled database (`api/Data/db_backup.sql.gz`) contains pre-processed data d
 - **Port auto-discovery.** `setup.sh` is idempotent: re-running it updates the port if needed and rebuilds containers without wiping data. Port discovery starts at 8082 and increments until a free port is found.
 - **Remote access.** For remote access, replace `localhost` in the printed URL with your server's IP or hostname.
 - At the end of setup, `setup.sh` offers to delete local source files. Choosing yes removes only the source directory — the running app and Docker volumes are unaffected.
+- **`deploy.env`** — optional user-supplied config (port pin, SWIM credentials). Copy `deploy.env.example` to `deploy.env`. It is ignored by Git and Docker builds. The main app runs without it.
 
 ---
 
@@ -234,42 +236,47 @@ docker compose down
 
 ## Optional FAA SWIM Recent Activity Sidecar
 
-The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely on historical public aviation datasets. No SWIM credentials or network access are required.
+The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely on historical public aviation datasets. **No SWIM credentials or network access are required.** Normal setup works without any SWIM configuration.
 
-An optional sidecar (`flightconn-swim-ingestor`) can be activated separately to ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. If enabled, it will allow the app to show recently observed airport-pair activity, observed carriers, common departure windows, and historical-vs-recent carrier comparison signals.
+An optional sidecar (`flightconn-swim-ingestor`) can be activated separately to ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. FAA credentials are required only when `ENABLE_SWIM_INGESTOR=true`.
 
-**Current status: Phase 2A — connection probe.** The sidecar can connect to the FAA SWIM broker and run a bounded probe session when `SWIM_PROBE_ONLY=true`. Full continuous ingestion is not implemented yet. No raw message payloads are logged.
+**Current status: Phase 2A — connection probe.** The sidecar can connect to the FAA SWIM broker and run a bounded probe session. Full continuous ingestion is not implemented yet. No raw message payloads are logged.
 
 **The main app is not affected by whether this sidecar runs.**
 
-### Probe mode (validate credentials and queue access)
+### Enable via deploy.env (preferred)
 
 ```bash
-# 1. Copy the env template and fill in FAA credentials
-cp swim.env.example swim.env
-# Edit swim.env: set SWIM_ENABLED=true, FAA_USER, FAA_PASS,
-#   FAA_SWIM_BROKER_URL, at least one QUEUE_*, and SWIM_PROBE_ONLY=true
+# 1. Copy the user config template
+cp deploy.env.example deploy.env
 
-# 2. Run a bounded probe (exits after SWIM_PROBE_SECONDS or SWIM_PROBE_MAX_MESSAGES)
-docker compose -f docker-compose.yml -f docker-compose.swim.yml \
-    run --rm swim-ingestor
+# 2. Edit deploy.env — set ENABLE_SWIM_INGESTOR=true and fill in FAA credentials:
+#
+#   ENABLE_SWIM_INGESTOR=true
+#   FAA_USER=your-faa-username
+#   FAA_PASS=your-faa-password
+#   QUEUE_SFDPS=your-sfdps-queue-name   (from FAA after account setup)
+#
+# FAA_URL defaults to tcps://ems1.swim.faa.gov:55443 — only change if FAA
+# provides a different broker URL for your account.
+
+# 3. Re-run setup — it reads deploy.env, validates SWIM credentials,
+#    starts the main app, and starts the SWIM sidecar automatically.
+./setup.sh
 ```
 
-### Apply schema
+### Manual override (without setup.sh)
 
 ```bash
 # Apply SWIM tables to the database (safe to run multiple times)
 docker compose -f docker-compose.yml -f docker-compose.swim.yml \
     run --rm swim-ingestor python apply_schema.py
-```
 
-### Start with main app
-
-```bash
+# Start SWIM sidecar alongside main app
 docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d
 ```
 
-FAA SWIM access requires a completed [SWIM Service Access Agreement](https://www.faa.gov/air_traffic/technology/swim). Credentials must never be committed. `swim.env` is excluded from version control. No raw message payloads are logged or stored during probe mode.
+FAA SWIM access requires a completed [SWIM Service Access Agreement](https://www.faa.gov/air_traffic/technology/swim). Credentials must never be committed. `deploy.env` is listed in `.gitignore`. No raw message payloads are logged or stored during probe mode.
 
 ### Schema
 

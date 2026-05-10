@@ -24,6 +24,7 @@ Full normalization into observed_flights is Phase 2B.
 
 import os
 import ssl
+import socket
 import threading
 import logging
 from datetime import datetime, timezone
@@ -73,6 +74,7 @@ def _parse_broker_url(url: str) -> tuple:
     Parse broker URL → (host, port, use_ssl).
 
     Accepts:
+      tcps://host:port   → TLS (FAA SWIM SCDS default scheme)
       ssl://host:port    → TLS on given port
       tcp://host:port    → plain TCP (non-production only)
       host:port          → defaults to TLS
@@ -81,7 +83,9 @@ def _parse_broker_url(url: str) -> tuple:
     url = url.strip()
     use_ssl = True
 
-    if url.startswith('ssl://'):
+    if url.startswith('tcps://'):
+        url = url[7:]
+    elif url.startswith('ssl://'):
         url = url[6:]
     elif url.startswith('tcp://'):
         url = url[6:]
@@ -99,6 +103,54 @@ def _parse_broker_url(url: str) -> tuple:
         port = 61614 if use_ssl else 61613
 
     return host, port, use_ssl
+
+
+def _resolve_broker() -> tuple:
+    """
+    Determine (host, port, use_ssl, source) from env vars.
+
+    Priority:
+      1. FAA_URL          — deploy.env preferred form (tcps://host:port)
+      2. FAA_SWIM_BROKER_URL — legacy swim.env form
+      3. FAA_SWIM_HOST + FAA_SWIM_PORT + FAA_SWIM_PROTOCOL — split form
+
+    FAA_SWIM_PROTOCOL accepts: ssl (default), tls, tcps, tcp, stomp, plain
+      ssl/tls/tcps → use_ssl=True,  default port 61614
+      tcp/stomp/plain → use_ssl=False, default port 61613
+
+    Returns (host, port, use_ssl, source_label).
+    Raises ValueError with a human-readable message if config is insufficient.
+    """
+    # FAA_URL (deploy.env form) takes precedence, then legacy FAA_SWIM_BROKER_URL
+    broker_url = (
+        os.environ.get('FAA_URL', '').strip()
+        or os.environ.get('FAA_SWIM_BROKER_URL', '').strip()
+    )
+    if broker_url:
+        source = 'FAA_URL' if os.environ.get('FAA_URL', '').strip() else 'FAA_SWIM_BROKER_URL'
+        host, port, use_ssl = _parse_broker_url(broker_url)
+        return host, port, use_ssl, source
+
+    faa_host = os.environ.get('FAA_SWIM_HOST', '').strip()
+    if not faa_host:
+        raise ValueError(
+            'No broker address configured. Set FAA_SWIM_BROKER_URL '
+            'or FAA_SWIM_HOST (with optional FAA_SWIM_PORT and FAA_SWIM_PROTOCOL).'
+        )
+
+    protocol = os.environ.get('FAA_SWIM_PROTOCOL', 'ssl').strip().lower()
+    use_ssl = protocol not in ('tcp', 'stomp', 'plain')
+    default_port = 61614 if use_ssl else 61613
+
+    port_str = os.environ.get('FAA_SWIM_PORT', '').strip()
+    try:
+        port = int(port_str) if port_str else default_port
+    except ValueError:
+        raise ValueError(
+            f'FAA_SWIM_PORT must be an integer, got: {port_str!r}'
+        )
+
+    return faa_host, port, use_ssl, 'FAA_SWIM_HOST/PORT/PROTOCOL'
 
 
 def _redact_error(err: str) -> str:
@@ -169,7 +221,12 @@ class _ProbeListener:
 
     def on_error(self, frame) -> None:
         brief = frame.headers.get('message', 'STOMP ERROR frame received')
-        self.errors.append(_redact_error(str(brief)))
+        brief_lower = brief.lower()
+        if any(w in brief_lower for w in
+               ('auth', 'login', 'credential', 'unauthorized', 'forbidden', 'not allowed')):
+            self.errors.append('Authentication/authorization failed: ' + _redact_error(str(brief)))
+        else:
+            self.errors.append('STOMP error: ' + _redact_error(str(brief)))
         self.done.set()
 
     def on_disconnected(self) -> None:
@@ -193,22 +250,18 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
     result = ProbeResult()
 
     # ── Read config (existence only; values not logged) ───────────────────
-    broker_url = os.environ.get('FAA_SWIM_BROKER_URL', '').strip()
-    faa_user   = os.environ.get('FAA_USER', '').strip()
-    faa_pass   = os.environ.get('FAA_PASS', '').strip()
-    ssl_verify = os.environ.get('SWIM_SSL_VERIFY', 'true').strip().lower() != 'false'
+    faa_user    = os.environ.get('FAA_USER', '').strip()
+    faa_pass    = os.environ.get('FAA_PASS', '').strip()
+    ssl_verify  = os.environ.get('SWIM_SSL_VERIFY', 'true').strip().lower() != 'false'
     dest_prefix = os.environ.get('SWIM_DEST_PREFIX', _DEFAULT_DEST_PREFIX)
-
-    if not broker_url:
-        result.error_summary = 'FAA_SWIM_BROKER_URL is not set'
-        result.errors.append(result.error_summary)
-        return result
+    heartbeat_ms = int(os.environ.get('SWIM_HEARTBEAT_MS', '4000'))
 
     try:
-        host, port, use_ssl = _parse_broker_url(broker_url)
-    except Exception as e:
-        result.error_summary = f'Cannot parse broker URL: {type(e).__name__}'
+        host, port, use_ssl, broker_source = _resolve_broker()
+    except ValueError as e:
+        result.error_summary = str(e)
         result.errors.append(result.error_summary)
+        log.error('Broker config error: %s', result.error_summary)
         return result
 
     # Build label_map: {'/queue/actual-value': 'SFDPS'}
@@ -227,7 +280,7 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
         result.errors.append(result.error_summary)
         return result
 
-    log.info('Broker: port=%d ssl=%s', port, use_ssl)
+    log.info('Broker: port=%d ssl=%s source=%s', port, use_ssl, broker_source)
     log.info('Queues to probe: %s', ', '.join(result.queues_attempted))
 
     listener = _ProbeListener(max_messages, label_map, dest_prefix)
@@ -248,7 +301,7 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
             host_and_ports=[(host, port)],
             use_ssl=use_ssl,
             ssl_context=ssl_context if use_ssl else None,
-            heartbeats=(4000, 4000),
+            heartbeats=(heartbeat_ms, heartbeat_ms),
             reconnect_attempts_max=0,   # Probe: no reconnect on failure
         )
         conn.set_listener('probe', listener)
@@ -264,10 +317,34 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
         log.info('Connected successfully.')
 
     except stomp.exception.ConnectFailedException as e:
-        result.error_summary = f'Connection refused or TCP failure: {type(e).__name__}'
+        cause = getattr(e, '__cause__', None)
+        if isinstance(cause, socket.gaierror):
+            result.error_summary = 'DNS failure: cannot resolve broker hostname'
+            hint = ('Check that FAA_SWIM_BROKER_URL or FAA_SWIM_HOST contains the '
+                    'correct hostname from your FAA SWIM account documentation.')
+        elif isinstance(cause, ssl.SSLError):
+            result.error_summary = f'TLS handshake failed ({cause.reason})'
+            hint = ('Try SWIM_SSL_VERIFY=false for initial connectivity testing. '
+                    'Use true in production.')
+        elif isinstance(cause, ConnectionRefusedError):
+            result.error_summary = f'Connection refused on port {port}'
+            hint = ('Confirm the port in your FAA SWIM account documentation '
+                    '(default STOMP+TLS is 61614).')
+        else:
+            result.error_summary = (
+                f'TCP connection failed: {type(cause).__name__ if cause else type(e).__name__}'
+            )
+            hint = 'Check network/firewall access to the broker host and port.'
         result.errors.append(_redact_error(str(e)))
         log.error('SWIM connection failed: %s', result.error_summary)
-        log.error('Check broker URL format, port, and network/firewall access.')
+        log.error('Hint: %s', hint)
+        return result
+
+    except ssl.SSLError as e:
+        result.error_summary = f'TLS error: {e.reason}'
+        result.errors.append(_redact_error(str(e)))
+        log.error('TLS error: %s', result.error_summary)
+        log.error('Try SWIM_SSL_VERIFY=false for initial connectivity testing.')
         return result
 
     except Exception as e:
@@ -276,8 +353,7 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
         result.error_summary = f'Connection error: {err_type}: {err_msg[:150]}'
         result.errors.append(result.error_summary)
         log.error('SWIM connection error: %s: %s', err_type, err_msg)
-        log.error('If SSL error: try SWIM_SSL_VERIFY=false for initial testing.')
-        log.error('If authentication error: check FAA_USER and FAA_PASS in swim.env.')
+        log.error('Check FAA_USER/FAA_PASS credentials and broker configuration.')
         return result
 
     # ── Subscribe ─────────────────────────────────────────────────────────
