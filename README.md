@@ -13,6 +13,15 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
+```bash
+git clone https://github.com/ApiFlier/aviation-route-intelligence.git flightconn
+cd flightconn
+cp deploy.env.example deploy.env
+nano deploy.env
+chmod +x setup.sh
+./setup.sh
+```
+
 `setup.sh` handles everything automatically:
 - Generates `.env` with random credentials (no manual config needed)
 - If `deploy.env` is present, imports user-supplied values (port, SWIM credentials)
