@@ -240,7 +240,9 @@ The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely
 
 An optional sidecar (`flightconn-swim-ingestor`) can ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. `setup.sh` auto-detects whether SWIM is ready — no flags to set.
 
-**Current status: Phase 2A — connection probe.** The sidecar connects to the FAA SWIM broker and runs a bounded probe session. Full continuous ingestion is not implemented yet. No raw message payloads are logged.
+**Current status: FAA SWIM recent route activity pipeline implemented.** When FAA credentials and queues are configured, the optional sidecar can connect to FAA SWIM through Solace PubSub+, normalize recent flight activity, aggregate route-level summaries, and expose recent activity context through the backend API and UI. The core app still runs normally without SWIM, and raw message payloads are not stored or displayed.
+
+FlightConn uses SWIM data for recent route activity context and route-pattern intelligence. It does not display live aircraft positions or replace Aviation Radar.
 
 **The main app is not affected by whether this sidecar runs.**
 
