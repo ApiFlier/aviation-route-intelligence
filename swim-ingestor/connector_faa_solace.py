@@ -83,6 +83,13 @@ class _ProbeMessageHandler(MessageHandler):
         
         parsed_res = parse_swim_message(self._label, payload)
         
+        skip_reason = parsed_res.get('skip_reason')
+        if parsed_res['success'] and not skip_reason and parsed_res.get('records'):
+            # Grab the first failure reason to help debug
+            failures = [r.get('skip_reason') for r in parsed_res['records'] if not r.get('success')]
+            if failures:
+                skip_reason = failures[0]
+                
         meta = {
             'queue_label': self._label,
             'received_at': datetime.now(timezone.utc).isoformat(),
@@ -90,20 +97,31 @@ class _ProbeMessageHandler(MessageHandler):
             'content_type': 'solace',
             'msg_type': parsed_res.get('message_type', 'unknown'),
             'parsed': parsed_res['success'],
-            'skip_reason': parsed_res.get('skip_reason')
+            'skip_reason': skip_reason,
+            'records_extracted': len([r for r in parsed_res.get('records', []) if r.get('success')]),
+            'collections_unpacked': parsed_res.get('stats', {}).get('message_collections', 0),
+            'candidates_found': parsed_res.get('stats', {}).get('candidates', 0),
         }
         
         with self._listener._lock:
             if parsed_res['success']:
-                self._result.parsed_successfully += 1
-                if upsert_observed_flight(parsed_res['flight_data']):
-                    self._result.inserted_or_updated += 1
+                # The payload parsed successfully, process the extracted records
+                for rec in parsed_res['records']:
+                    if rec['success']:
+                        self._result.parsed_successfully += 1
+                        if upsert_observed_flight(rec['flight_data']):
+                            self._result.inserted_or_updated += 1
+                    else:
+                        reason = rec.get('skip_reason', '')
+                        if 'Missing origin' in reason or 'Missing GUFI' in reason or 'Missing ACID' in reason or 'non-IATA' in reason:
+                            self._result.skipped_missing_route += 1
+                        else:
+                            self._result.skipped_unknown_type += 1
             else:
+                # The whole payload failed to parse
                 reason = parsed_res.get('skip_reason', '')
                 if 'Parse Error' in reason or 'Syntax Error' in reason:
                     self._result.parse_errors += 1
-                elif 'Missing origin' in reason or 'Missing GUFI' in reason or 'Missing ACID' in reason:
-                    self._result.skipped_missing_route += 1
                 else:
                     self._result.skipped_unknown_type += 1
 

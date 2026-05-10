@@ -189,13 +189,16 @@ def _run_probe(log: logging.Logger) -> None:
             for meta in probe_result.messages_metadata:
                 log.info(
                     '  msg: queue=%s received_at=%s payload_bytes=%d '
-                    'msg_type=%s parsed=%s skip_reason=%s',
+                    'msg_type=%s parsed=%s skip_reason=%s records_extracted=%d collections=%d candidates=%d',
                     meta['queue_label'],
                     meta['received_at'],
                     meta['payload_bytes'],
                     meta.get('msg_type', 'unknown'),
                     meta.get('parsed', False),
-                    meta.get('skip_reason', 'N/A')
+                    meta.get('skip_reason') or 'N/A',
+                    meta.get('records_extracted', 0),
+                    meta.get('collections_unpacked', 0),
+                    meta.get('candidates_found', 0)
                 )
         else:
             log.warning('Probe result: connected=no. error=%s',

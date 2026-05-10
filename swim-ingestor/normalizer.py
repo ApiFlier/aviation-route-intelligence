@@ -15,27 +15,161 @@ def _first_text(tree, xpath_expr):
     matches = tree.xpath(xpath_expr)
     if matches and hasattr(matches[0], 'text') and matches[0].text:
         return matches[0].text.strip()
-    # Sometimes attributes are returned directly as strings
     if matches and isinstance(matches[0], str):
         return matches[0].strip()
     return None
 
+def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
+    """Attempt to extract normalized flight data from a single message element."""
+    local_name = etree.QName(root).localname if hasattr(root, 'tag') else 'unknown'
+    
+    # We must restrict our search to the current flight element context, but handle local-name()
+    # Using .//*[local-name()='x'] searches descendants of the current 'root'.
+    
+    # GUFI lookup (can be an attribute on flight, or a child tag)
+    gufi = root.get('gufi')
+    if not gufi:
+        gufi = _first_text(root, ".//*[local-name()='gufi']")
+    if not gufi:
+        gufi = _first_text(root, ".//@gufi")
+    
+    # ACID lookup (can be an attribute on flight, or flightIdentification, or callSign)
+    acid = root.get('acid')
+    if not acid:
+        acid = _first_text(root, ".//*[local-name()='acid']")
+    if not acid:
+        acid = _first_text(root, ".//*[local-name()='flightIdentification']/@aircraftIdentification")
+    if not acid:
+        acid = _first_text(root, ".//*[local-name()='callSign']")
+    if not acid:
+        acid = _first_text(root, ".//*[local-name()='aircraftId']")
+
+    # Route extraction logic: SFDPS / TFMS style
+    origin = _first_text(root, ".//*[local-name()='departurePoint']//*[local-name()='locationIndicator']")
+    dest = _first_text(root, ".//*[local-name()='arrivalPoint']//*[local-name()='locationIndicator']")
+    
+    if not origin:
+        origin = _first_text(root, ".//*[local-name()='departurePoint']//*[local-name()='airport']")
+    if not dest:
+        dest = _first_text(root, ".//*[local-name()='arrivalPoint']//*[local-name()='airport']")
+
+    # Fallbacks for locationIndicator missing
+    if not origin:
+        origin = _first_text(root, ".//*[local-name()='departurePoint']")
+    if not dest:
+        dest = _first_text(root, ".//*[local-name()='arrivalPoint']")
+
+    # STDDS style
+    if not origin:
+        origin = _first_text(root, ".//*[local-name()='departureAerodrome']")
+    if not origin:
+        origin = _first_text(root, ".//*[local-name()='depArpt']")
+        
+    if not dest:
+        dest = _first_text(root, ".//*[local-name()='arrivalAerodrome']")
+    if not dest:
+        dest = _first_text(root, ".//*[local-name()='arrArpt']")
+
+    if origin and len(origin) == 4 and origin.startswith('K'):
+        origin = origin[1:]
+    if dest and len(dest) == 4 and dest.startswith('K'):
+        dest = dest[1:]
+
+    aircraft_type = _first_text(root, ".//*[local-name()='aircraftType']//*[local-name()='type']")
+    
+    status = 'active'
+    flight_status = _first_text(root, ".//*[local-name()='flightStatus']")
+    if flight_status:
+        status = flight_status.lower()
+
+    debug_tags = [etree.QName(c).localname for c in root.iter() if isinstance(c, etree._Element)][:20]
+
+    if not gufi:
+        return {'success': False, 'skip_reason': f'Missing GUFI. Tags: {debug_tags}', 'message_type': local_name}
+    if not acid:
+        return {'success': False, 'skip_reason': f'Missing ACID. Tags: {debug_tags}', 'message_type': local_name}
+
+    if origin and len(origin) != 3:
+        return {'success': False, 'skip_reason': f'Non-IATA origin ({origin})', 'message_type': local_name}
+    if dest and len(dest) != 3:
+        return {'success': False, 'skip_reason': f'Non-IATA dest ({dest})', 'message_type': local_name}
+
+    carrier_code = ''.join([c for c in acid if c.isalpha()])[:3] if acid else None
+
+    return {
+        'success': True,
+        'message_type': local_name,
+        'flight_data': {
+            'source_flight_id': gufi,
+            'callsign': acid,
+            'carrier_code': carrier_code,
+            'origin_iata': origin[:3] if origin else None,
+            'dest_iata': dest[:3] if dest else None,
+            'flight_status': status,
+            'aircraft_type': aircraft_type[:10] if aircraft_type else None,
+            'data_source': f'FAA_SWIM_{queue_label}'
+        }
+    }
+
+def _recursive_unpack(queue_label: str, element: etree._Element, records: list, stats: dict):
+    """Recursively unpack MessageCollection or process standard elements."""
+    local_name = etree.QName(element).localname if hasattr(element, 'tag') else 'unknown'
+    
+    envelope_tags = (
+        'MessageCollection', 'messageCollection', 'message', 
+        'fiOutput', 'fiMessage', 'tmiFlightDataList', 'flightData',
+        'tfmDataService'
+    )
+    
+    if local_name in envelope_tags:
+        if local_name in ('MessageCollection', 'messageCollection'):
+            stats['message_collections'] += 1
+            
+        for child in element:
+            if isinstance(child, etree._Element):
+                _recursive_unpack(queue_label, child, records, stats)
+    else:
+        stats['candidates'] += 1
+        res = _extract_flight_data(queue_label, element)
+        records.append(res)
+
+
+def get_safe_diagnostics(root: etree._Element) -> dict:
+    """Return a safe summary of the XML structure without exposing payload values."""
+    local_name = etree.QName(root).localname if hasattr(root, 'tag') else 'unknown'
+    children = [etree.QName(c).localname for c in root if isinstance(c, etree._Element)]
+    
+    gufi_count = len(root.xpath(".//*[local-name()='gufi']"))
+    acid_count = len(root.xpath(".//*[local-name()='acid']"))
+    
+    return {
+        'root_tag': local_name,
+        'child_tags': list(set(children))[:5],  # top 5 unique child tags
+        'gufi_tags_found': gufi_count,
+        'acid_tags_found': acid_count,
+        'namespaces': list(root.nsmap.keys()) if hasattr(root, 'nsmap') else []
+    }
+
 def parse_swim_message(queue_label: str, payload_bytes: bytes) -> dict:
     """
-    Parse a SWIM message payload.
+    Parse a SWIM message payload, unpacking collections recursively.
     Returns:
         dict: {
             'success': bool,
-            'skip_reason': str (if skipped),
-            'flight_data': dict (if success),
-            'message_type': str (detected type)
+            'records': list of dicts from _extract_flight_data,
+            'skip_reason': str (if global skip),
+            'message_type': str (root type),
+            'stats': dict,
+            'diagnostics': dict
         }
     """
     result = {
         'success': False,
+        'records': [],
         'skip_reason': None,
-        'flight_data': {},
-        'message_type': 'unknown'
+        'message_type': 'unknown',
+        'stats': {'message_collections': 0, 'candidates': 0},
+        'diagnostics': {}
     }
 
     if not payload_bytes:
@@ -48,81 +182,14 @@ def parse_swim_message(queue_label: str, payload_bytes: bytes) -> dict:
         return result
 
     try:
-        root = etree.fromstring(payload_str.encode('utf-8'))
+        # Use a parser that drops blanks and comments for safety
+        parser = etree.XMLParser(remove_blank_text=True, remove_comments=True)
+        root = etree.fromstring(payload_str.encode('utf-8'), parser)
         
-        # Detect basic message type
-        local_name = etree.QName(root).localname if hasattr(root, 'tag') else 'unknown'
-        result['message_type'] = local_name
+        result['message_type'] = etree.QName(root).localname if hasattr(root, 'tag') else 'unknown'
+        result['diagnostics'] = get_safe_diagnostics(root)
 
-        # Extract GUFI (Global Unique Flight Identifier)
-        gufi = _first_text(root, "//*[local-name()='gufi']")
-        if not gufi:
-            gufi = root.get('gufi') # Sometimes it's an attribute on the root or other element
-            if not gufi:
-                gufi = _first_text(root, "//@gufi")
-        
-        # Extract Callsign (ACID)
-        acid = _first_text(root, "//*[local-name()='acid']")
-        if not acid:
-            acid = _first_text(root, "//*[local-name()='flightIdentification']/@aircraftIdentification")
-            if not acid:
-                acid = root.get('acid')
-
-        # Extract Origin and Destination
-        origin = _first_text(root, "//*[local-name()='departurePoint']//*[local-name()='locationIndicator']")
-        dest = _first_text(root, "//*[local-name()='arrivalPoint']//*[local-name()='locationIndicator']")
-
-        # Some feeds use arrArpt / depArpt
-        if not origin:
-            origin = _first_text(root, "//*[local-name()='depArpt']")
-        if not dest:
-            dest = _first_text(root, "//*[local-name()='arrArpt']")
-
-        # Convert 4-letter ICAO to 3-letter IATA if it starts with 'K' (e.g., KSFO -> SFO)
-        if origin and len(origin) == 4 and origin.startswith('K'):
-            origin = origin[1:]
-        if dest and len(dest) == 4 and dest.startswith('K'):
-            dest = dest[1:]
-
-        # Aircraft type
-        aircraft_type = _first_text(root, "//*[local-name()='aircraftType']//*[local-name()='type']")
-        
-        # Status
-        status = 'active'
-        flight_status = _first_text(root, "//*[local-name()='flightStatus']")
-        if flight_status:
-            status = flight_status.lower()
-
-        # Validate minimum required fields
-        if not gufi:
-            result['skip_reason'] = 'Missing GUFI (source_flight_id)'
-            return result
-            
-        if not acid:
-            result['skip_reason'] = 'Missing ACID (callsign)'
-            return result
-
-        if not origin or not dest:
-            result['skip_reason'] = 'Missing origin or destination'
-            return result
-
-        # Determine Carrier Code from Callsign (usually first 3 letters if it's an ICAO callsign)
-        carrier_code = ''.join([c for c in acid if c.isalpha()])[:3] if acid else None
-        
-        # In a real system, we'd map this 3-letter ICAO carrier code to a 2-letter IATA code 
-        # (e.g. AAL -> AA). For the probe, we just store it as the carrier_code field.
-
-        result['flight_data'] = {
-            'source_flight_id': gufi,
-            'callsign': acid,
-            'carrier_code': carrier_code,
-            'origin_iata': origin[:3],
-            'dest_iata': dest[:3],
-            'flight_status': status,
-            'aircraft_type': aircraft_type[:10] if aircraft_type else None,
-            'data_source': f'FAA_SWIM_{queue_label}'
-        }
-        
+        _recursive_unpack(queue_label, root, result['records'], result['stats'])
         result['success'] = True
         return result
 
