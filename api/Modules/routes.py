@@ -5,6 +5,7 @@ Routes API endpoints
 import json
 from flask import Blueprint, jsonify, request
 from Classes.Database import get_db
+from Services.RecentActivity import get_route_recent_activity
 
 routes_bp = Blueprint('routes', __name__)
 db = get_db()
@@ -211,7 +212,10 @@ def get_route_carriers(origin, dest):
             'aircraft_types': ac_types,
         })
 
-    return jsonify({'carriers': result})
+    return jsonify({
+        'carriers': result,
+        'recent_activity_context': get_route_recent_activity(origin, dest)
+    })
 
 
 @routes_bp.route('/routes/top')

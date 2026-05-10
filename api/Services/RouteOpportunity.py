@@ -8,6 +8,7 @@ estimate airline profitability or guarantee route success.
 
 import math
 from Classes.Database import get_db
+from Services.RecentActivity import get_opportunity_recent_activity
 
 # ── Module-level caches (populated on first request, static between reloads) ──
 # Passenger-weighted average fares per route_id: {route_id: {avg_fare, avg_fare_per_mile}}
@@ -296,6 +297,7 @@ def _score_route(row, fare_cache, reporting_carriers):
             'dominant_carrier':       dominant_carrier or None,
             'dominant_carrier_share': round(dominant_share, 2) if dominant_share is not None else None,
         },
+        'recent_activity': get_opportunity_recent_activity(origin, dest),
         'summary':    summary,
         'reasons':    reasons,
         'risks':      risks,

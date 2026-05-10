@@ -4,6 +4,7 @@ Airports API endpoints
 
 from flask import Blueprint, jsonify, request
 from Classes.Database import get_db
+from Services.RecentActivity import get_airport_recent_activity
 
 airports_bp = Blueprint('airports', __name__)
 db = get_db()
@@ -98,7 +99,8 @@ def get_airport(iata):
     
     return jsonify({
         'airport': airport,
-        'stats': stats
+        'stats': stats,
+        'recent_activity_summary': get_airport_recent_activity(iata)
     })
 
 

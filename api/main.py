@@ -10,6 +10,7 @@ from flask_cors import CORS
 
 from Modules import airports_bp, routes_bp, carriers_bp, fares_bp, schedules_bp, opportunities_bp
 from Classes import get_db
+from Services.RecentActivity import get_recent_activity_status
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 app.secret_key = os.getenv('FLASK_SECRET') or os.urandom(32)
@@ -81,6 +82,12 @@ def get_stats():
         'total_passengers': db.execute_one("SELECT SUM(passengers) as total FROM routes")['total'] or 0,
         'total_freight': db.execute_one("SELECT SUM(freight) as total FROM routes")['total'] or 0
     })
+
+
+@app.route('/api/recent-activity/status')
+def recent_activity_status():
+    """Get system-wide status of SWIM ingestion and aggregation."""
+    return jsonify(get_recent_activity_status())
 
 
 @app.route('/health')
