@@ -16,14 +16,12 @@ echo ""
 # ── Load deploy.env if present ────────────────────────────────────────
 # deploy.env is the user-supplied config file (port pin, SWIM credentials).
 # It is never generated or modified by setup.sh.
-ENABLE_SWIM_INGESTOR=false
 if [ -f "$DEPLOY_ENV" ]; then
     echo "==> Loading deploy.env..."
     set -a
     # shellcheck disable=SC1090
     source "$DEPLOY_ENV"
     set +a
-    echo "    ENABLE_SWIM_INGESTOR=${ENABLE_SWIM_INGESTOR}"
 fi
 
 # Verify docker-compose.yml exists
@@ -182,41 +180,30 @@ set -a
 source "$ENV_FILE"
 set +a
 
-# ── Validate SWIM credentials if ENABLE_SWIM_INGESTOR=true ────────────
-if [ "$ENABLE_SWIM_INGESTOR" = "true" ]; then
-    echo ""
-    echo "==> SWIM ingestor enabled. Validating SWIM configuration..."
-    SWIM_MISSING=false
-    for VAR in FAA_USER FAA_PASS; do
-        VAL=$(printenv "$VAR" 2>/dev/null || true)
-        if [ -z "$VAL" ]; then
-            echo "    ERROR: $VAR is required when ENABLE_SWIM_INGESTOR=true but is not set." >&2
-            SWIM_MISSING=true
-        else
-            echo "    $VAR: present"
-        fi
-    done
-    # At least one queue name must be set
-    QUEUE_OK=false
-    for Q in QUEUE_SFDPS QUEUE_STDDS QUEUE_TFMS; do
-        QVAL=$(printenv "$Q" 2>/dev/null || true)
-        if [ -n "$QVAL" ]; then
-            QUEUE_OK=true
-            echo "    $Q: present"
-        fi
-    done
-    if [ "$QUEUE_OK" = "false" ]; then
-        echo "    ERROR: At least one of QUEUE_SFDPS, QUEUE_STDDS, QUEUE_TFMS is required when ENABLE_SWIM_INGESTOR=true." >&2
-        SWIM_MISSING=true
+# ── Auto-detect SWIM readiness from FAA credentials ───────────────────
+FAA_USER_VAL=$(printenv FAA_USER 2>/dev/null || true)
+FAA_PASS_VAL=$(printenv FAA_PASS 2>/dev/null || true)
+SWIM_QUEUE_LABELS=""
+QUEUE_OK=false
+for Q_VAR in QUEUE_SFDPS QUEUE_STDDS QUEUE_TFMS; do
+    QVAL=$(printenv "$Q_VAR" 2>/dev/null || true)
+    if [ -n "$QVAL" ]; then
+        QUEUE_OK=true
+        LABEL="${Q_VAR#QUEUE_}"
+        SWIM_QUEUE_LABELS="${SWIM_QUEUE_LABELS:+$SWIM_QUEUE_LABELS/}$LABEL"
     fi
-    if [ "$SWIM_MISSING" = "true" ]; then
-        echo ""
-        echo "    Set missing values in deploy.env and re-run ./setup.sh." >&2
-        echo "    SWIM credentials must never be committed to version control." >&2
-        exit 1
-    fi
-    echo "    SWIM configuration is valid."
+done
+
+SWIM_READY=false
+if [ -n "$FAA_USER_VAL" ] && [ -n "$FAA_PASS_VAL" ] && [ "$QUEUE_OK" = "true" ]; then
+    SWIM_READY=true
+    SWIM_STATUS="Enabled for bounded probe, queues configured: $SWIM_QUEUE_LABELS."
+elif [ -z "$FAA_USER_VAL" ] && [ -z "$FAA_PASS_VAL" ]; then
+    SWIM_STATUS="Disabled, no FAA credentials configured."
+else
+    SWIM_STATUS="Disabled, credentials incomplete."
 fi
+echo "==> SWIM: $SWIM_STATUS"
 
 # Build and start containers
 echo ""
@@ -353,9 +340,9 @@ fi
 
 # ── Optionally start the SWIM sidecar ─────────────────────────────────
 SWIM_COMPOSE="$REPO_DIR/docker-compose.swim.yml"
-if [ "$ENABLE_SWIM_INGESTOR" = "true" ] && [ -f "$SWIM_COMPOSE" ]; then
+if [ "$SWIM_READY" = "true" ] && [ -f "$SWIM_COMPOSE" ]; then
     echo ""
-    echo "==> Starting optional SWIM ingestor sidecar..."
+    echo "==> Starting SWIM ingestor sidecar (FAA credentials detected)..."
     cd "$REPO_DIR"
     docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d swim-ingestor
     echo "    SWIM sidecar started. View logs:"
@@ -379,11 +366,7 @@ echo "  - Database: Stored in a Docker named volume (flightconn_mysql)."
 echo "  - Persistence: Data persists even if containers are stopped or removed."
 echo "  - WARNING: Never run 'docker compose down -v' unless you want to WIPE the database."
 echo "  - Repository: Local files are only needed for rebuilding (./update.sh) or setup."
-if [ "$ENABLE_SWIM_INGESTOR" = "true" ]; then
-    echo "  - SWIM: Ingestor sidecar is running. Credentials loaded from deploy.env."
-else
-    echo "  - SWIM: Disabled. To enable, set ENABLE_SWIM_INGESTOR=true in deploy.env."
-fi
+echo "  - SWIM: $SWIM_STATUS"
 echo ""
 echo "Useful commands:"
 echo "  ./update.sh          # Rebuild after code changes (auto-backups first)"

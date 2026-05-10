@@ -238,32 +238,33 @@ docker compose down
 
 The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely on historical public aviation datasets. **No SWIM credentials or network access are required.** Normal setup works without any SWIM configuration.
 
-An optional sidecar (`flightconn-swim-ingestor`) can be activated separately to ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. FAA credentials are required only when `ENABLE_SWIM_INGESTOR=true`.
+An optional sidecar (`flightconn-swim-ingestor`) can ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. `setup.sh` auto-detects whether SWIM is ready — no flags to set.
 
-**Current status: Phase 2A — connection probe.** The sidecar can connect to the FAA SWIM broker and run a bounded probe session. Full continuous ingestion is not implemented yet. No raw message payloads are logged.
+**Current status: Phase 2A — connection probe.** The sidecar connects to the FAA SWIM broker and runs a bounded probe session. Full continuous ingestion is not implemented yet. No raw message payloads are logged.
 
 **The main app is not affected by whether this sidecar runs.**
 
-### Enable via deploy.env (preferred)
+### Enable via deploy.env
 
 ```bash
 # 1. Copy the user config template
 cp deploy.env.example deploy.env
 
-# 2. Edit deploy.env — set ENABLE_SWIM_INGESTOR=true and fill in FAA credentials:
+# 2. Fill in FAA credentials — that's it. No flags to set.
 #
-#   ENABLE_SWIM_INGESTOR=true
 #   FAA_USER=your-faa-username
 #   FAA_PASS=your-faa-password
 #   QUEUE_SFDPS=your-sfdps-queue-name   (from FAA after account setup)
-#
-# FAA_URL defaults to tcps://ems1.swim.faa.gov:55443 — only change if FAA
-# provides a different broker URL for your account.
 
-# 3. Re-run setup — it reads deploy.env, validates SWIM credentials,
-#    starts the main app, and starts the SWIM sidecar automatically.
+# 3. Re-run setup — it detects the credentials and starts the sidecar automatically.
 ./setup.sh
 ```
+
+`setup.sh` detects SWIM readiness automatically:
+- `FAA_USER`, `FAA_PASS`, and at least one `QUEUE_*` set → SWIM sidecar starts.
+- Any of those blank or missing → main app starts normally, SWIM skipped.
+
+The broker URL defaults to `tcps://ems1.swim.faa.gov:55443` (FAA SWIM SCDS production). Override with `FAA_URL=` in `deploy.env` only if FAA provides a different address for your account.
 
 ### Manual override (without setup.sh)
 

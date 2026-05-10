@@ -133,10 +133,9 @@ def _resolve_broker() -> tuple:
 
     faa_host = os.environ.get('FAA_SWIM_HOST', '').strip()
     if not faa_host:
-        raise ValueError(
-            'No broker address configured. Set FAA_SWIM_BROKER_URL '
-            'or FAA_SWIM_HOST (with optional FAA_SWIM_PORT and FAA_SWIM_PROTOCOL).'
-        )
+        # Fall back to the known FAA SWIM SCDS production endpoint
+        host, port, use_ssl = _parse_broker_url('tcps://ems1.swim.faa.gov:55443')
+        return host, port, use_ssl, 'default'
 
     protocol = os.environ.get('FAA_SWIM_PROTOCOL', 'ssl').strip().lower()
     use_ssl = protocol not in ('tcp', 'stomp', 'plain')

@@ -4,18 +4,15 @@
 # for FAA SWIM recent flight activity ingestion. The main app (flightconn-app)
 # does not depend on this service and runs normally without it.
 #
+# SWIM is auto-detected: if FAA_USER, FAA_PASS, and at least one QUEUE_* are
+# set in deploy.env, setup.sh starts this sidecar automatically. No flags needed.
+#
 # ── Usage ─────────────────────────────────────────────────────────────────────
 #
-#   1. Copy swim.env.example to swim.env and fill in FAA credentials.
-#   2. Set SWIM_ENABLED=true in swim.env.
-#   3. Start with the override:
+#   Normal: run setup.sh — it reads deploy.env and starts the sidecar automatically.
 #
+#   Manual override (without setup.sh):
 #        docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d
-#
-#   Probe only (safe, exits after a short window):
-#        docker compose -f docker-compose.yml -f docker-compose.swim.yml \
-#            run --rm swim-ingestor
-#        (Set SWIM_PROBE_ONLY=true in swim.env for probe mode)
 #
 #   Apply schema only:
 #        docker compose -f docker-compose.yml -f docker-compose.swim.yml \
@@ -31,9 +28,8 @@
 #
 # ── Config files ──────────────────────────────────────────────────────────────
 #
-#   deploy.env is the preferred user config file (ENABLE_SWIM_INGESTOR, FAA_URL,
-#   FAA_USER, FAA_PASS, QUEUE_*). Copy deploy.env.example to deploy.env.
-#   deploy.env must never be committed.
+#   deploy.env is the preferred user config file (FAA_USER, FAA_PASS, QUEUE_*).
+#   Copy deploy.env.example to deploy.env. deploy.env must never be committed.
 #
 #   swim.env is accepted for backward compatibility when using the manual compose
 #   override without setup.sh. swim.env values are overridden by deploy.env if

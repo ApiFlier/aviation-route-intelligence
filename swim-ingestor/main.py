@@ -4,23 +4,26 @@ FlightConn SWIM Ingestor
 
 Optional sidecar for FAA SWIM recent flight activity ingestion.
 
-Behavior by configuration:
-  ENABLE_SWIM_INGESTOR != true  → exits 0, no connection attempted
-  ENABLE_SWIM_INGESTOR=true, missing config → exits 0, logs what is missing
-  ENABLE_SWIM_INGESTOR=true, SWIM_PROBE_ONLY=true → runs bounded probe, records result, exits 0
-  ENABLE_SWIM_INGESTOR=true, full config, no probe flag → logs Phase 2B not ready, exits 0
+Behavior by configuration (auto-detect mode — normal users):
+  FAA_USER, FAA_PASS, and at least one QUEUE_* set → probe mode runs automatically
+  Any of those blank or missing → exits 0, logs what is missing
 
-  SWIM_ENABLED is also accepted for backward compatibility with swim.env users.
+Advanced override behavior (ENABLE_SWIM_INGESTOR / SWIM_ENABLED):
+  ENABLE_SWIM_INGESTOR=false or SWIM_ENABLED=false → always exits 0 (explicit disable)
+  ENABLE_SWIM_INGESTOR=true or SWIM_ENABLED=true → enables ingestion regardless of creds
+    (used internally; normal users should rely on auto-detect instead)
+
+  SWIM_ENABLED is accepted for backward compatibility with swim.env users.
   ENABLE_SWIM_INGESTOR takes precedence when both are set.
 
 Environment variables (all optional for the main app):
-  ENABLE_SWIM_INGESTOR      Master switch — must be 'true' to activate (preferred)
+  ENABLE_SWIM_INGESTOR      Advanced override — 'true'/'false' (preferred over SWIM_ENABLED)
   SWIM_ENABLED              Accepted alias for ENABLE_SWIM_INGESTOR (legacy)
   FAA_USER                  FAA SWIM account username
   FAA_PASS                  FAA SWIM account password
 
-  Broker address — use one of:
-  FAA_URL                   Full broker URL from deploy.env (e.g. tcps://host:port)
+  Broker address (handled internally — override only if FAA provides a different URL):
+  FAA_URL                   Full broker URL (default: tcps://ems1.swim.faa.gov:55443)
   FAA_SWIM_BROKER_URL       Alias for FAA_URL (legacy swim.env form)
   FAA_SWIM_HOST             Hostname only (alternative to URL forms)
   FAA_SWIM_PORT             Port (default 61614 for ssl, 61613 for tcp)
@@ -30,7 +33,7 @@ Environment variables (all optional for the main app):
   QUEUE_STDDS               SWIM STDDS queue name (from FAA)
   QUEUE_TFMS                SWIM TFMS queue name (from FAA)
   SWIM_CONFIG_CHECK_ONLY    If 'true', validate config and exit without connecting
-  SWIM_PROBE_ONLY           If 'true', run bounded probe and exit
+  SWIM_PROBE_ONLY           If 'true'/'false', override probe mode (default: true)
   SWIM_PROBE_SECONDS        Probe timeout in seconds (default 30)
   SWIM_PROBE_MAX_MESSAGES   Max messages to receive in probe (default 5)
   SWIM_SSL_VERIFY           Set 'false' to skip TLS cert check (testing only)
@@ -81,7 +84,7 @@ def _log_redacted_config(log: logging.Logger) -> None:
         log.info('  broker:                FAA_SWIM_HOST (set), PORT=%s, PROTOCOL=%s',
                  _get('FAA_SWIM_PORT', '(default)'), _get('FAA_SWIM_PROTOCOL', 'ssl'))
     else:
-        log.info('  broker:                NOT SET')
+        log.info('  broker:                default (tcps://ems1.swim.faa.gov:55443)')
     log.info('  username present:      %s', 'yes' if _present('FAA_USER') else 'no')
     log.info('  password present:      %s', 'yes' if _present('FAA_PASS') else 'no')
     log.info('  queues configured:     %s',
@@ -97,10 +100,6 @@ def _validate_config(log: logging.Logger) -> list:
         missing.append('FAA_USER')
     if not _present('FAA_PASS'):
         missing.append('FAA_PASS')
-    if not _present('FAA_URL') and not _present('FAA_SWIM_BROKER_URL') and not _present('FAA_SWIM_HOST'):
-        missing.append(
-            'FAA_URL  (or FAA_SWIM_BROKER_URL, or FAA_SWIM_HOST + FAA_SWIM_PORT + FAA_SWIM_PROTOCOL)'
-        )
     if not any(_present(q) for q in _QUEUE_VARS):
         missing.append('at least one of: ' + ', '.join(_QUEUE_VARS))
     return missing
@@ -112,15 +111,14 @@ def _run_config_check(log: logging.Logger) -> None:
     _log_redacted_config(log)
 
     # Show broker parse result — safe to compute, no connection made
-    if _present('FAA_URL') or _present('FAA_SWIM_BROKER_URL') or _present('FAA_SWIM_HOST'):
-        try:
-            from connector_faa_swim import _resolve_broker
-            _, port, use_ssl, source = _resolve_broker()
-            log.info('  broker parse:          port=%d ssl=%s (from %s)', port, use_ssl, source)
-        except ValueError as e:
-            log.warning('  broker parse failed:   %s', e)
-        except Exception as e:
-            log.warning('  broker parse error:    %s: %s', type(e).__name__, e)
+    try:
+        from connector_faa_swim import _resolve_broker
+        _, port, use_ssl, source = _resolve_broker()
+        log.info('  broker parse:          port=%d ssl=%s (from %s)', port, use_ssl, source)
+    except ValueError as e:
+        log.warning('  broker parse failed:   %s', e)
+    except Exception as e:
+        log.warning('  broker parse error:    %s: %s', type(e).__name__, e)
 
     missing = _validate_config(log)
     if missing:
@@ -237,14 +235,31 @@ def _run_probe(log: logging.Logger) -> None:
 def main() -> None:
     log = _setup_logging()
 
-    # ENABLE_SWIM_INGESTOR (deploy.env) takes precedence over SWIM_ENABLED (swim.env legacy)
+    # ── Determine whether SWIM is enabled ────────────────────────────────
+    # Advanced override: ENABLE_SWIM_INGESTOR (deploy.env) or SWIM_ENABLED (legacy).
+    # ENABLE_SWIM_INGESTOR takes precedence when set to an explicit value.
     if _present('ENABLE_SWIM_INGESTOR'):
-        swim_enabled = _get('ENABLE_SWIM_INGESTOR', 'false').strip().lower() == 'true'
+        explicit_flag = _get('ENABLE_SWIM_INGESTOR').strip().lower()
+        if explicit_flag == 'false':
+            log.info('SWIM ingestion explicitly disabled (ENABLE_SWIM_INGESTOR=false). Exiting.')
+            sys.exit(0)
+        swim_enabled = explicit_flag == 'true'
+    elif _present('SWIM_ENABLED'):
+        explicit_flag = _get('SWIM_ENABLED').strip().lower()
+        if explicit_flag == 'false':
+            log.info('SWIM ingestion explicitly disabled (SWIM_ENABLED=false). Exiting.')
+            sys.exit(0)
+        swim_enabled = explicit_flag == 'true'
     else:
-        swim_enabled = _get('SWIM_ENABLED', 'false').strip().lower() == 'true'
+        # Auto-detect: enable if FAA_USER + FAA_PASS + ≥1 QUEUE_* are all set
+        swim_enabled = (
+            _present('FAA_USER') and
+            _present('FAA_PASS') and
+            any(_present(q) for q in _QUEUE_VARS)
+        )
 
     if not swim_enabled:
-        log.info('SWIM ingestion is disabled (ENABLE_SWIM_INGESTOR/SWIM_ENABLED != true). Exiting.')
+        log.info('SWIM ingestion is not ready. Set FAA_USER, FAA_PASS, and at least one QUEUE_* to enable.')
         sys.exit(0)
 
     config_check_only = _get('SWIM_CONFIG_CHECK_ONLY', 'false').strip().lower() == 'true'
@@ -267,7 +282,7 @@ def main() -> None:
 
     log.info('All required SWIM configuration is present.')
 
-    probe_only = _get('SWIM_PROBE_ONLY', 'false').strip().lower() == 'true'
+    probe_only = _get('SWIM_PROBE_ONLY', 'true').strip().lower() != 'false'
 
     if probe_only:
         _run_probe(log)
@@ -275,9 +290,8 @@ def main() -> None:
         sys.exit(0)
 
     # Full ingestion not implemented yet
-    log.info('SWIM_PROBE_ONLY is not set.')
     log.info('Full continuous ingestion is not implemented yet (Phase 2B).')
-    log.info('To run a bounded probe, set SWIM_PROBE_ONLY=true.')
+    log.info('Running in probe mode by default. Set SWIM_PROBE_ONLY=false only when Phase 2B is ready.')
     sys.exit(0)
 
 
