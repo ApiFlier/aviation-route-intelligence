@@ -260,8 +260,8 @@ def main() -> None:
         for item in missing:
             log.warning('  missing: %s', item)
         log.warning(
-            'Set these variables in swim.env and re-run with the SWIM compose override. '
-            'Exiting without connecting.'
+            'Set these variables in deploy.env (preferred) or swim.env '
+            'and re-run with the SWIM compose override. Exiting without connecting.'
         )
         sys.exit(0)
 

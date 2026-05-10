@@ -29,10 +29,17 @@
 #        docker compose -f docker-compose.yml -f docker-compose.swim.yml \
 #            stop swim-ingestor
 #
-# ── swim.env ──────────────────────────────────────────────────────────────────
+# ── Config files ──────────────────────────────────────────────────────────────
 #
-#   swim.env is optional. If absent, SWIM vars default to empty/disabled.
-#   swim.env must never be committed. See swim.env.example for the template.
+#   deploy.env is the preferred user config file (ENABLE_SWIM_INGESTOR, FAA_URL,
+#   FAA_USER, FAA_PASS, QUEUE_*). Copy deploy.env.example to deploy.env.
+#   deploy.env must never be committed.
+#
+#   swim.env is accepted for backward compatibility when using the manual compose
+#   override without setup.sh. swim.env values are overridden by deploy.env if
+#   both are present (deploy.env is loaded after swim.env).
+#
+#   Both files are optional — if absent, SWIM vars default to empty/disabled.
 #
 # ── Build context ─────────────────────────────────────────────────────────────
 #
@@ -55,6 +62,8 @@ services:
       - path: .env
         required: true
       - path: swim.env
+        required: false
+      - path: deploy.env
         required: false
     environment:
       DB_HOST: db

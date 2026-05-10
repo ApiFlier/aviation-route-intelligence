@@ -159,7 +159,7 @@ def _redact_error(err: str) -> str:
     FAA_USER and FAA_PASS values are removed if they appear.
     """
     result = err
-    for var in ('FAA_USER', 'FAA_PASS', 'FAA_SWIM_BROKER_URL',
+    for var in ('FAA_USER', 'FAA_PASS', 'FAA_URL', 'FAA_SWIM_BROKER_URL',
                 'QUEUE_SFDPS', 'QUEUE_STDDS', 'QUEUE_TFMS'):
         val = os.environ.get(var, '').strip()
         if val and val in result:
