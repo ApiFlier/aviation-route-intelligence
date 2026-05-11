@@ -168,5 +168,46 @@ class TestNormalizer(unittest.TestCase):
         self.assertEqual(fd['dest_iata'], 'SKBO')
         self.assertTrue(is_route_ready(fd))
 
+    def test_tfms_enrichment(self):
+        xml = b'''
+        <tfmDataService>
+            <fltdMessage acid="DAL123" airline="DAL" major="DAL" msgType="departureInformation">
+                <qualifiedAircraftId aircraftCategory="JET" userCategory="COMMERCIAL">
+                    <gufi>TFM125</gufi>
+                </qualifiedAircraftId>
+                <flightStatusAndSpec>
+                    <aircraftModel>B738</aircraftModel>
+                </flightStatusAndSpec>
+            </fltdMessage>
+        </tfmDataService>
+        '''
+        res = parse_swim_message('TFMS', xml)
+        self.assertTrue(res['success'])
+        fd = res['records'][0]['flight_data']
+        self.assertEqual(fd['carrier_code'], 'DL')
+        enrich = fd.get('enrichment', {})
+        self.assertEqual(enrich.get('operating_carrier_code'), 'DAL')
+        self.assertEqual(enrich.get('major_carrier_code'), 'DAL')
+        self.assertEqual(enrich.get('user_category'), 'COMMERCIAL')
+        self.assertEqual(enrich.get('aircraft_category'), 'JET')
+
+    def test_sfdps_enrichment(self):
+        xml = b'''
+        <MessageCollection>
+            <flight gufi="S124" flightType="SCHEDULED">
+                <flightIdentification aircraftIdentification="AAL124"/>
+                <operator><organization><name>AAL</name></organization></operator>
+                <aircraftDescription><aircraftType><icaoModelIdentifier>A321</icaoModelIdentifier></aircraftType></aircraftDescription>
+            </flight>
+        </MessageCollection>
+        '''
+        res = parse_swim_message('SFDPS', xml)
+        self.assertTrue(res['success'])
+        fd = res['records'][0]['flight_data']
+        self.assertEqual(fd['carrier_code'], 'AA')
+        enrich = fd.get('enrichment', {})
+        self.assertEqual(enrich.get('operating_carrier_code'), 'AAL')
+        self.assertEqual(enrich.get('flight_type'), 'SCHEDULED')
+
 if __name__ == '__main__':
     unittest.main()

@@ -100,7 +100,10 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
 
     # Carrier code lookup
     airline = _first_text(root, ".//*[local-name()='airline']")
+    if not airline: airline = root.get('airline')
+    if not airline: airline = _first_text(root, ".//@airline")
     if not airline: airline = _first_text(root, ".//*[local-name()='operator']//*[local-name()='organization']//*[local-name()='name']")
+    if not airline: airline = _first_text(root, ".//*[local-name()='operatingOrganization']//*[local-name()='name']")
 
     # Route extraction logic
     origin = _first_text(root, ".//*[local-name()='departurePoint']//*[local-name()='locationIndicator']")
@@ -160,10 +163,21 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     
     # Enrichment fields for analysis
     major_carrier = root.get('major')
+    if not major_carrier: major_carrier = _first_text(root, ".//@major")
+    
     operating_carrier = airline
-    user_category = _first_text(root, ".//*[local-name()='userCategory']")
-    aircraft_category = _first_text(root, ".//*[local-name()='aircraftCategory']")
-    flight_type = _first_text(root, ".//*[local-name()='flightType']")
+    
+    user_category = root.get('userCategory')
+    if not user_category: user_category = _first_text(root, ".//*[local-name()='userCategory']")
+    if not user_category: user_category = _first_text(root, ".//@userCategory")
+    
+    aircraft_category = root.get('aircraftCategory')
+    if not aircraft_category: aircraft_category = _first_text(root, ".//*[local-name()='aircraftCategory']")
+    if not aircraft_category: aircraft_category = _first_text(root, ".//@aircraftCategory")
+    
+    flight_type = root.get('flightType')
+    if not flight_type: flight_type = _first_text(root, ".//*[local-name()='flightType']")
+    if not flight_type: flight_type = _first_text(root, ".//@flightType")
     
     route_of_flight = _first_text(root, ".//*[local-name()='routeOfFlight']")
     if not route_of_flight: route_of_flight = _first_text(root, ".//*[local-name()='newRouteOfFlight']/*[local-name()='legacyFormat']")

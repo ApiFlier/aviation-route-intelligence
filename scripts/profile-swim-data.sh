@@ -78,6 +78,24 @@ echo "Rows with 4-char ICAO:  $non_3_char_airports (e.g. non-US international)"
 echo "Commercial indicators:  $commercial_user (from enrichment)"
 echo ""
 
+echo "--- observed_flight_enrichment Data Quality ---"
+has_op_carrier=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE operating_carrier_code IS NOT NULL;")
+has_maj_carrier=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE major_carrier_code IS NOT NULL;")
+has_flt_type=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE flight_type IS NOT NULL;")
+has_user_cat=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE user_category IS NOT NULL;")
+has_ac_cat=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE aircraft_category IS NOT NULL;")
+has_route=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE route_of_flight IS NOT NULL;")
+has_amended=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE route_amended = 1;")
+
+echo "Rows with operating_carrier: $has_op_carrier"
+echo "Rows with major_carrier:     $has_maj_carrier"
+echo "Rows with flight_type:       $has_flt_type"
+echo "Rows with user_category:     $has_user_cat"
+echo "Rows with aircraft_category: $has_ac_cat"
+echo "Rows with route_of_flight:   $has_route"
+echo "Rows with route_amended=1:   $has_amended"
+echo ""
+
 echo "--- Timeline ---"
 earliest_seen=$(run_query "SELECT MIN(first_seen_at) FROM observed_flights;")
 latest_updated=$(run_query "SELECT MAX(last_updated_at) FROM observed_flights;")
