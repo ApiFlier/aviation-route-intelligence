@@ -6,6 +6,35 @@ Database singleton — no shared imports, no side effects.
 
 Uses PyMySQL (pure Python) to avoid requiring C MySQL libraries in the
 sidecar image.
+
+---
+Operational SQL Profiling Queries (for manual execution):
+
+1. Overall row counts:
+   SELECT COUNT(*) as total_rows, 
+          SUM(origin_iata IS NOT NULL AND dest_iata IS NOT NULL) as route_ready_candidate,
+          SUM(origin_iata IS NULL OR dest_iata IS NULL) as partial_rows
+   FROM observed_flights;
+
+2. Rows by source/feed:
+   SELECT data_source, COUNT(*) as count,
+          SUM(origin_iata IS NOT NULL AND dest_iata IS NOT NULL) as route_ready
+   FROM observed_flights GROUP BY data_source;
+
+3. Rows with carrier and route info:
+   SELECT COUNT(*) as total,
+          SUM(carrier_code IS NOT NULL) as has_carrier,
+          SUM(origin_iata IS NOT NULL) as has_origin,
+          SUM(dest_iata IS NOT NULL) as has_dest,
+          SUM(actual_dep_utc IS NOT NULL OR sched_dep_utc IS NOT NULL) as has_time
+   FROM observed_flights;
+
+4. Recent activity by status:
+   SELECT flight_status, COUNT(*) as count 
+   FROM observed_flights 
+   WHERE last_updated_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
+   GROUP BY flight_status;
+---
 """
 
 import os

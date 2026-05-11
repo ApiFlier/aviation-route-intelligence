@@ -281,11 +281,10 @@ The broker URL defaults to `tcps://ems1.swim.faa.gov:55443` (FAA SWIM SCDS produ
 
 ```bash
 # Apply SWIM tables to the database (safe to run multiple times)
-docker compose -f docker-compose.yml -f docker-compose.swim.yml \
-    run --rm swim-ingestor python apply_schema.py
+docker compose --profile swim run --rm swim-ingestor python apply_schema.py
 
 # Start SWIM sidecar alongside main app
-docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d
+docker compose --profile swim up -d
 ```
 
 FAA SWIM access requires a completed [SWIM Service Access Agreement](https://www.faa.gov/air_traffic/technology/swim). Credentials must never be committed. `deploy.env` is listed in `.gitignore`. No raw message payloads are logged or stored during probe mode.

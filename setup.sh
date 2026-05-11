@@ -209,7 +209,15 @@ echo "==> SWIM: $SWIM_STATUS"
 echo ""
 echo "==> Building and starting containers..."
 cd "$REPO_DIR"
-docker compose up -d --build
+
+COMPOSE_OPTS=""
+if [ "$SWIM_READY" = "true" ]; then
+    echo "    SWIM detected: including 'swim' profile."
+    COMPOSE_OPTS="--profile swim"
+fi
+
+# shellcheck disable=SC2086
+docker compose $COMPOSE_OPTS up -d --build
 
 # Wait for MySQL to be healthy
 echo ""
@@ -338,17 +346,6 @@ if [ "$APP_OK" = false ]; then
     echo "    Try: docker compose logs app"
 fi
 
-# ── Optionally start the SWIM sidecar ─────────────────────────────────
-SWIM_COMPOSE="$REPO_DIR/docker-compose.swim.yml"
-if [ "$SWIM_READY" = "true" ] && [ -f "$SWIM_COMPOSE" ]; then
-    echo ""
-    echo "==> Starting SWIM ingestor sidecar (FAA credentials detected)..."
-    cd "$REPO_DIR"
-    docker compose -f docker-compose.yml -f docker-compose.swim.yml up -d swim-ingestor
-    echo "    SWIM sidecar started. View logs:"
-    echo "      docker compose -f docker-compose.yml -f docker-compose.swim.yml logs -f swim-ingestor"
-fi
-
 # Summary
 echo ""
 echo "============================================="
@@ -367,6 +364,9 @@ echo "  - Persistence: Data persists even if containers are stopped or removed."
 echo "  - WARNING: Never run 'docker compose down -v' unless you want to WIPE the database."
 echo "  - Repository: Local files are only needed for rebuilding (./update.sh) or setup."
 echo "  - SWIM: $SWIM_STATUS"
+if [ "$SWIM_READY" = "true" ]; then
+    echo "  - SWIM Logs: docker compose logs -f swim-ingestor"
+fi
 echo ""
 echo "Useful commands:"
 echo "  ./update.sh          # Rebuild after code changes (auto-backups first)"

@@ -60,6 +60,8 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     if not gufi:
         gufi = _first_text(root, ".//*[local-name()='gufi']")
     if not gufi:
+        gufi = _first_text(root, ".//*[local-name()='eramGufi']")
+    if not gufi:
         gufi = _first_text(root, ".//@gufi")
     
     # ACID lookup (can be an attribute on flight, or flightIdentification, or callSign)
@@ -72,6 +74,8 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
         acid = _first_text(root, ".//*[local-name()='callSign']")
     if not acid:
         acid = _first_text(root, ".//*[local-name()='aircraftId']")
+    if not acid:
+        acid = _first_text(root, ".//*[local-name()='flightId']")
 
     # Route extraction logic: SFDPS / TFMS style
     origin = _first_text(root, ".//*[local-name()='departurePoint']//*[local-name()='locationIndicator']")
@@ -150,8 +154,11 @@ def is_route_ready(flight_data: dict) -> bool:
     - Must have callsign (ACID)
     - Must have 3-letter origin_iata
     - Must have 3-letter dest_iata
+    - Must have carrier_code
     """
     if not flight_data.get('source_flight_id') or not flight_data.get('callsign'):
+        return False
+    if not flight_data.get('carrier_code'):
         return False
     orig = flight_data.get('origin_iata')
     dest = flight_data.get('dest_iata')
@@ -187,14 +194,19 @@ def get_safe_diagnostics(root: etree._Element) -> dict:
     local_name = etree.QName(root).localname if hasattr(root, 'tag') else 'unknown'
     children = [etree.QName(c).localname for c in root if isinstance(c, etree._Element)]
     
-    gufi_count = len(root.xpath(".//*[local-name()='gufi']"))
-    acid_count = len(root.xpath(".//*[local-name()='acid']"))
-    
+    # Identify which of our target identifier tags are present (names only, no values)
+    known_id_tags = ['gufi', 'eramGufi', 'acid', 'callSign', 'aircraftId', 'flightId', 'flightIdentification']
+    found_id_tags = []
+    for tag in known_id_tags:
+        if root.xpath(f".//*[local-name()='{tag}']"):
+            found_id_tags.append(tag)
+        if root.get(tag) or root.xpath(f".//@{tag}"):
+            found_id_tags.append(f"@{tag}")
+
     return {
         'root_tag': local_name,
-        'child_tags': list(set(children))[:5],  # top 5 unique child tags
-        'gufi_tags_found': gufi_count,
-        'acid_tags_found': acid_count,
+        'child_tags': list(set(children))[:10],
+        'found_id_tags': list(set(found_id_tags)),
         'namespaces': list(root.nsmap.keys()) if hasattr(root, 'nsmap') else []
     }
 

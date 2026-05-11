@@ -106,15 +106,20 @@ def _log_redacted_config(log: logging.Logger) -> None:
     
     # Mode detection for logging
     mode = _get('SWIM_MODE', '').lower()
-    if not mode:
-        if _get('SWIM_PROBE_ONLY', '').lower() == 'true':
-            mode = 'probe'
-        elif _get('SWIM_PROBE_ONLY', '').lower() == 'false':
-            mode = 'continuous'
-        else:
-            mode = 'continuous (auto-detected)'
+    probe_only_env = _get('SWIM_PROBE_ONLY', '').lower()
     
-    log.info('  SWIM_MODE:             %s', mode)
+    if mode == 'probe':
+        log_mode = 'probe (SWIM_MODE=probe)'
+    elif mode == 'continuous':
+        log_mode = 'continuous (SWIM_MODE=continuous)'
+    elif probe_only_env == 'true':
+        log_mode = 'probe (SWIM_PROBE_ONLY=true)'
+    elif probe_only_env == 'false':
+        log_mode = 'continuous (SWIM_PROBE_ONLY=false)'
+    else:
+        log_mode = 'continuous (auto-detected)'
+    
+    log.info('  SWIM_MODE:             %s', log_mode)
     log.info('  SWIM_LOG_LEVEL:        %s', _get('SWIM_LOG_LEVEL', 'INFO'))
 
 
@@ -209,8 +214,11 @@ def _run_probe(log: logging.Logger) -> None:
                      probe_result.messages_received, probe_result.parsed_successfully, probe_result.inserted_or_updated,
                      probe_result.route_ready_count, probe_result.partial_count,
                      probe_result.skipped_missing_route + probe_result.skipped_unknown_type, probe_result.parse_errors)
-            for label, count in probe_result.counts_by_label.items():
-                log.info('  queue %s: %d message(s)', label, count)
+            
+            log.info('  queues: %s', ', '.join([f"{k}: {v}" for k, v in probe_result.counts_by_label.items()]))
+            log.info('  message types: %s', ', '.join([f"{k}: {v}" for k, v in sorted(probe_result.message_types.items(), key=lambda x: x[1], reverse=True)[:10]]))
+            log.info('  identifier tags observed: %s', ', '.join([f"{k}: {v}" for k, v in sorted(probe_result.ids_observed.items(), key=lambda x: x[1], reverse=True)]))
+            
             if probe_result.skip_reason_counts:
                 log.info('  skip reasons: %s', ', '.join([f"{k}: {v}" for k, v in probe_result.skip_reason_counts.items()]))
             
@@ -338,8 +346,10 @@ def _run_continuous(log: logging.Logger) -> None:
                              result.route_ready_count, result.partial_count,
                              result.inserted_or_updated, result.parse_errors)
                     
-                    if result.counts_by_label:
-                        log.info('  queues: %s', ', '.join([f"{k}: {v}" for k, v in result.counts_by_label.items()]))
+                    log.info('  queues: %s', ', '.join([f"{k}: {v}" for k, v in result.counts_by_label.items()]))
+                    log.info('  message types: %s', ', '.join([f"{k}: {v}" for k, v in sorted(result.message_types.items(), key=lambda x: x[1], reverse=True)[:10]]))
+                    log.info('  identifier tags observed: %s', ', '.join([f"{k}: {v}" for k, v in sorted(result.ids_observed.items(), key=lambda x: x[1], reverse=True)]))
+
                     if result.skip_reason_counts:
                         log.info('  skip reasons: %s', ', '.join([f"{k}: {v}" for k, v in result.skip_reason_counts.items()]))
                     
@@ -459,13 +469,19 @@ def main() -> None:
     # Determine mode: Default is continuous if credentials are OK.
     # SWIM_MODE=probe or SWIM_PROBE_ONLY=true overrides to probe mode.
     mode = _get('SWIM_MODE', '').lower()
+    probe_only_env = _get('SWIM_PROBE_ONLY', '').lower()
+
     if mode == 'probe':
         probe_only = True
     elif mode == 'continuous':
         probe_only = False
+    elif probe_only_env == 'true':
+        probe_only = True
+    elif probe_only_env == 'false':
+        probe_only = False
     else:
-        # Fallback to legacy SWIM_PROBE_ONLY if SWIM_MODE is unset
-        probe_only = _get('SWIM_PROBE_ONLY', 'false').lower() == 'true'
+        # Default for normal users with creds is continuous
+        probe_only = False
 
     if probe_only:
         _run_probe(log)

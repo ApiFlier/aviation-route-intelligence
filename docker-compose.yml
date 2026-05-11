@@ -36,6 +36,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  swim-ingestor:
+    profiles:
+      - swim
+    build:
+      context: .
+      dockerfile: swim-ingestor/Dockerfile
+    container_name: flightconn-swim-ingestor
+    env_file:
+      - .env
+      - deploy.env
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: flightconn
+      DB_USER: flightconn
+      DB_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   flightconn_mysql:
     name: flightconn_mysql   # explicit name prevents compose from prepending the project directory

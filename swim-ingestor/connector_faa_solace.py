@@ -47,6 +47,11 @@ class ProbeResult:
         self.skipped_unknown_type: int = 0
         self.parse_errors: int = 0
         self.skip_reason_counts: dict[str, int] = {}
+        
+        # Safe Profiling stats (counts only, no values)
+        self.message_types: dict[str, int] = {}
+        self.tags_observed: dict[str, int] = {}
+        self.ids_observed: dict[str, int] = {}
 
 def _resolve_broker() -> tuple:
     # Use default 55443 as in Radar
@@ -110,6 +115,16 @@ class _IngestMessageHandler(MessageHandler):
             self._result.messages_received += 1
             self._result.counts_by_label[self._label] = self._result.counts_by_label.get(self._label, 0) + 1
             
+            # Safe profiling aggregation
+            msg_type = parsed_res.get('message_type', 'unknown')
+            self._result.message_types[msg_type] = self._result.message_types.get(msg_type, 0) + 1
+            
+            diag = parsed_res.get('diagnostics', {})
+            for tag in diag.get('child_tags', []):
+                self._result.tags_observed[tag] = self._result.tags_observed.get(tag, 0) + 1
+            for id_tag in diag.get('found_id_tags', []):
+                self._result.ids_observed[id_tag] = self._result.ids_observed.get(id_tag, 0) + 1
+
             if parsed_res['success']:
                 # The payload parsed successfully, process the extracted records
                 for rec in parsed_res['records']:
