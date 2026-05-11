@@ -142,7 +142,7 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
             'dest_iata': dest[:3] if dest else None,
             'flight_status': status,
             'aircraft_type': aircraft_type[:10] if aircraft_type else None,
-            'data_source': f'FAA_SWIM_{queue_label}'
+            'data_source': 'FAA_SWIM'
         }
     }
 

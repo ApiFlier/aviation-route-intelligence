@@ -34,6 +34,8 @@ def aggregate_recent_route_activity(lookback_days: int = 30) -> int:
         # Step 1: Compute aggregates from observed_flights
         with conn.cursor() as cur:
             # Join with historical routes and airports to determine classification
+            # Using COUNT(DISTINCT o.source_flight_id) ensures that multiple observations
+            # of the same flight (e.g. from different SWIM queues) are only counted once.
             sql_agg = """
                 SELECT 
                     o.origin_iata,
@@ -41,7 +43,7 @@ def aggregate_recent_route_activity(lookback_days: int = 30) -> int:
                     MIN(DATE(o.first_seen_at)) as coverage_start_date,
                     MAX(DATE(o.last_updated_at)) as coverage_end_date,
                     COUNT(DISTINCT DATE(o.first_seen_at)) as coverage_days,
-                    COUNT(*) as observation_count,
+                    COUNT(DISTINCT o.source_flight_id) as observation_count,
                     COUNT(DISTINCT o.carrier_code) as carrier_count_observed,
                     MAX(o.last_updated_at) as last_observed_at,
                     IF(rt.id IS NOT NULL, 1, 0) as has_historical_route,
@@ -55,6 +57,7 @@ def aggregate_recent_route_activity(lookback_days: int = 30) -> int:
                   AND LENGTH(o.origin_iata) = 3
                   AND LENGTH(o.dest_iata) = 3
                   AND o.source_flight_id IS NOT NULL
+                  AND o.carrier_code NOT IN ('', 'UNK', 'UNKNOWN')
                   AND o.first_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
                 GROUP BY o.origin_iata, o.dest_iata
             """
@@ -173,6 +176,8 @@ def aggregate_recent_route_carrier_activity(lookback_days: int = 30) -> int:
     updated_rows = 0
     try:
         with conn.cursor() as cur:
+            # Using COUNT(DISTINCT o.source_flight_id) ensures that multiple observations
+            # of the same flight (e.g. from different SWIM queues) are only counted once.
             sql_agg = """
                 SELECT 
                     o.origin_iata,
@@ -181,7 +186,7 @@ def aggregate_recent_route_carrier_activity(lookback_days: int = 30) -> int:
                     MIN(DATE(o.first_seen_at)) as coverage_start_date,
                     MAX(DATE(o.last_updated_at)) as coverage_end_date,
                     COUNT(DISTINCT DATE(o.first_seen_at)) as coverage_days,
-                    COUNT(*) as observation_count,
+                    COUNT(DISTINCT o.source_flight_id) as observation_count,
                     MAX(o.last_updated_at) as last_observed_at,
                     IF(rt.id IS NOT NULL, 1, 0) as has_historical_route,
                     IF(c.code IS NOT NULL, 1, 0) as has_known_carrier,
@@ -195,7 +200,7 @@ def aggregate_recent_route_carrier_activity(lookback_days: int = 30) -> int:
                   AND LENGTH(o.origin_iata) = 3
                   AND LENGTH(o.dest_iata) = 3
                   AND o.source_flight_id IS NOT NULL
-                  AND o.carrier_code IS NOT NULL
+                  AND o.carrier_code NOT IN ('', 'UNK', 'UNKNOWN')
                   AND o.first_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
                 GROUP BY o.origin_iata, o.dest_iata, o.carrier_code
             """

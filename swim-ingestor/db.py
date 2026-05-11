@@ -10,10 +10,10 @@ sidecar image.
 ---
 Operational SQL Profiling Queries (for manual execution):
 
-1. Overall row counts:
+1. Overall row counts and duplicates:
    SELECT COUNT(*) as total_rows, 
-          SUM(origin_iata IS NOT NULL AND dest_iata IS NOT NULL) as route_ready_candidate,
-          SUM(origin_iata IS NULL OR dest_iata IS NULL) as partial_rows
+          COUNT(DISTINCT source_flight_id) as distinct_gufis,
+          SUM(origin_iata IS NOT NULL AND dest_iata IS NOT NULL) as route_ready_candidate
    FROM observed_flights;
 
 2. Rows by source/feed:
@@ -21,13 +21,14 @@ Operational SQL Profiling Queries (for manual execution):
           SUM(origin_iata IS NOT NULL AND dest_iata IS NOT NULL) as route_ready
    FROM observed_flights GROUP BY data_source;
 
-3. Rows with carrier and route info:
-   SELECT COUNT(*) as total,
-          SUM(carrier_code IS NOT NULL) as has_carrier,
-          SUM(origin_iata IS NOT NULL) as has_origin,
-          SUM(dest_iata IS NOT NULL) as has_dest,
-          SUM(actual_dep_utc IS NOT NULL OR sched_dep_utc IS NOT NULL) as has_time
-   FROM observed_flights;
+3. Identify repeated source_flight_id (GUFI) groups:
+   SELECT source_flight_id, COUNT(*) as count, 
+          GROUP_CONCAT(data_source) as sources,
+          GROUP_CONCAT(callsign) as callsigns
+   FROM observed_flights 
+   GROUP BY source_flight_id 
+   HAVING count > 1 
+   LIMIT 20;
 
 4. Recent activity by status:
    SELECT flight_status, COUNT(*) as count 
@@ -180,9 +181,12 @@ def start_ingestion_run(source: str) -> int:
 def upsert_observed_flight(flight_data: dict) -> bool:
     """
     Safely upsert a normalized observed_flight row.
-    Partial updates (like status-only messages) will not overwrite
-    existing non-null origin_iata, dest_iata, or aircraft_type.
-    Returns True if inserted/updated, False otherwise.
+    
+    Merge Strategy:
+    - If a row exists, update it.
+    - Do not overwrite valid callsigns/carriers with 'UNKN'/'UNK'.
+    - Do not overwrite valid origin/destination with NULL.
+    - Prefer status updates that are more specific (e.g. 'completed' over 'active').
     """
     if not flight_data or not flight_data.get('source_flight_id'):
         return False
@@ -198,11 +202,21 @@ def upsert_observed_flight(flight_data: dict) -> bool:
                     %(source_flight_id)s, %(data_source)s, %(callsign)s, %(carrier_code)s,
                     %(origin_iata)s, %(dest_iata)s, %(flight_status)s, %(aircraft_type)s
                 ) ON DUPLICATE KEY UPDATE
-                    callsign = COALESCE(VALUES(callsign), callsign),
-                    carrier_code = COALESCE(VALUES(carrier_code), carrier_code),
+                    callsign = CASE 
+                        WHEN VALUES(callsign) IS NULL OR VALUES(callsign) IN ('', 'UNKN', 'UNKNOWN') THEN callsign 
+                        ELSE VALUES(callsign) 
+                    END,
+                    carrier_code = CASE 
+                        WHEN VALUES(carrier_code) IS NULL OR VALUES(carrier_code) IN ('', 'UNK', 'UNKNOWN') THEN carrier_code 
+                        ELSE VALUES(carrier_code) 
+                    END,
                     origin_iata = COALESCE(VALUES(origin_iata), origin_iata),
                     dest_iata = COALESCE(VALUES(dest_iata), dest_iata),
-                    flight_status = COALESCE(VALUES(flight_status), flight_status),
+                    flight_status = CASE 
+                        WHEN VALUES(flight_status) = 'unknown' THEN flight_status
+                        WHEN flight_status IN ('completed', 'cancelled') THEN flight_status
+                        ELSE VALUES(flight_status)
+                    END,
                     aircraft_type = COALESCE(VALUES(aircraft_type), aircraft_type),
                     last_updated_at = CURRENT_TIMESTAMP
             '''
@@ -212,6 +226,107 @@ def upsert_observed_flight(flight_data: dict) -> bool:
     except Exception as e:
         log.error("Failed to upsert flight %s: %s", flight_data.get('source_flight_id'), e)
         return False
+def merge_duplicate_observations(dry_run: bool = True) -> dict:
+    """
+    Find and merge duplicate rows for the same source_flight_id.
+    Consolidates partial/route-ready records into a single best-known row.
+    Updates the winner's data_source to 'FAA_SWIM'.
+    """
+    log.info("Starting duplicate merge (dry_run=%s)", dry_run)
+    conn = get_connection()
+    stats = {'groups_found': 0, 'rows_merged': 0, 'rows_deleted': 0}
+    
+    try:
+        with conn.cursor() as cur:
+            # 1. Find GUFIs with more than one row
+            cur.execute("""
+                SELECT source_flight_id, COUNT(*) as count 
+                FROM observed_flights 
+                GROUP BY source_flight_id 
+                HAVING count > 1
+            """)
+            duplicates = cur.fetchall()
+            stats['groups_found'] = len(duplicates)
+            
+            if dry_run:
+                log.info("Dry run: found %d duplicate groups. No changes made.", len(duplicates))
+                return stats
+
+            for (gufi, count) in duplicates:
+                # Get all rows for this GUFI
+                cur.execute("""
+                    SELECT id, callsign, carrier_code, origin_iata, dest_iata, 
+                           flight_status, aircraft_type, data_source, first_seen_at, last_updated_at
+                    FROM observed_flights 
+                    WHERE source_flight_id = %s
+                    ORDER BY 
+                        (origin_iata IS NOT NULL AND dest_iata IS NOT NULL) DESC,
+                        (flight_status IN ('completed', 'cancelled')) DESC,
+                        last_updated_at DESC
+                """, (gufi,))
+                rows = cur.fetchall()
+                
+                if not rows: continue
+                
+                # The first row is the "winner"
+                winner_id = rows[0][0]
+                winner_data = list(rows[0])
+                
+                # Merge data from other rows into winner
+                for i in range(1, len(rows)):
+                    other_data = rows[i]
+                    # Merge callsign
+                    if winner_data[1] in (None, '', 'UNKN', 'UNKNOWN') and other_data[1] not in (None, '', 'UNKN', 'UNKNOWN'):
+                        winner_data[1] = other_data[1]
+                    # Merge carrier
+                    if winner_data[2] in (None, '', 'UNK', 'UNKNOWN') and other_data[2] not in (None, '', 'UNK', 'UNKNOWN'):
+                        winner_data[2] = other_data[2]
+                    # Merge origin
+                    if winner_data[3] is None and other_data[3] is not None:
+                        winner_data[3] = other_data[3]
+                    # Merge dest
+                    if winner_data[4] is None and other_data[4] is not None:
+                        winner_data[4] = other_data[4]
+                    # Merge status
+                    if winner_data[5] == 'unknown' and other_data[5] != 'unknown':
+                        winner_data[5] = other_data[5]
+                    # Merge aircraft
+                    if winner_data[6] is None and other_data[6] is not None:
+                        winner_data[6] = other_data[6]
+                    # Preserve earliest first_seen
+                    if other_data[8] < winner_data[8]:
+                        winner_data[8] = other_data[8]
+                    # Preserve latest last_updated
+                    if other_data[9] > winner_data[9]:
+                        winner_data[9] = other_data[9]
+
+                    # Delete the "other" row
+                    cur.execute("DELETE FROM observed_flights WHERE id = %s", (other_data[0],))
+                    stats['rows_deleted'] += 1
+                
+                # Update winner
+                cur.execute("""
+                    UPDATE observed_flights SET
+                        callsign = %s, carrier_code = %s, origin_iata = %s, dest_iata = %s,
+                        flight_status = %s, aircraft_type = %s, data_source = 'FAA_SWIM',
+                        first_seen_at = %s, last_updated_at = %s
+                    WHERE id = %s
+                """, (winner_data[1], winner_data[2], winner_data[3], winner_data[4],
+                      winner_data[5], winner_data[6], winner_data[8], winner_data[9], winner_id))
+                stats['rows_merged'] += 1
+                
+                if stats['rows_merged'] % 100 == 0:
+                    conn.commit() # Periodic commit for safety
+                    
+        conn.commit()
+        log.info("Duplicate merge completed: %s", stats)
+    except Exception as e:
+        conn.rollback()
+        log.error("Duplicate merge failed: %s", e)
+    finally:
+        conn.close()
+    return stats
+
 def cleanup_old_data(retention_days: int = 35, runs_retention_days: int = 180) -> dict:
     """
     Safely delete old records from SWIM tables in batches.

@@ -52,6 +52,7 @@ import logging
 import time
 import signal
 import threading
+import argparse
 
 _QUEUE_VARS = ('QUEUE_SFDPS', 'QUEUE_STDDS', 'QUEUE_TFMS')
 
@@ -413,6 +414,46 @@ def _run_continuous(log: logging.Logger) -> None:
 
 
 def main() -> None:
+    # ── Command line argument parsing ─────────────────────────────────────
+    # This must happen before any SWIM-specific logic or config checks.
+    parser = argparse.ArgumentParser(description='FlightConn SWIM Ingestor')
+    subparsers = parser.add_subparsers(dest='command', help='Commands')
+    
+    # cleanup-duplicates command
+    cleanup_parser = subparsers.add_parser('cleanup-duplicates', help='Merge duplicate flight observations')
+    cleanup_parser.add_argument('--dry-run', action='store_true', default=True, help='Dry run (default)')
+    cleanup_parser.add_argument('--apply', action='store_false', dest='dry_run', help='Actually apply changes')
+
+    args = parser.parse_args()
+
+    # ── Maintenance Commands ─────────────────────────────────────────────
+    if args.command == 'cleanup-duplicates':
+        log = _setup_logging()
+        if not args.dry_run:
+            log.warning("!!! DESTRUCTIVE MAINTENANCE WARNING !!!")
+            log.warning("Operation: Merge and delete duplicate SWIM observations.")
+            log.warning("Impact: This will permanently modify 'observed_flights' and 'observed_flight_events'.")
+            log.warning("Requirement: You MUST have a current database backup before proceeding.")
+            log.warning("Safety: Run './backup.sh' now if you have not already done so.")
+            log.warning("")
+            log.warning("Press Ctrl+C within 10 seconds to abort, or wait to proceed with --apply...")
+            try:
+                for i in range(10, 0, -1):
+                    log.warning(f"  Starting in {i} seconds...")
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                log.info("Cleanup aborted by user.")
+                sys.exit(0)
+            log.warning("Proceeding with --apply...")
+
+        from db import merge_duplicate_observations
+        results = merge_duplicate_observations(dry_run=args.dry_run)
+        log.info("Cleanup results: %s", results)
+        if args.dry_run:
+            log.info("Note: This was a dry-run. No data was modified. Use --apply to perform the merge.")
+        sys.exit(0)
+
+    # ── Normal Operation Setup ───────────────────────────────────────────
     log = _setup_logging()
     
     # Register signal handlers for graceful shutdown

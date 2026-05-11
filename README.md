@@ -289,6 +289,33 @@ docker compose --profile swim up -d
 
 FAA SWIM access requires a completed [SWIM Service Access Agreement](https://www.faa.gov/air_traffic/technology/swim). Credentials must never be committed. `deploy.env` is listed in `.gitignore`. No raw message payloads are logged or stored during probe mode.
 
+### Maintenance & Troubleshooting
+
+#### Duplicate SWIM Observations
+If you observe duplicate `source_flight_id` (GUFI) rows in `observed_flights` (often one partial and one complete), you can merge them using the maintenance script. This consolidates data and preserves the best-known route information.
+
+**Safety Workflow:**
+1.  **Backup:** Create a fresh database backup:
+    ```bash
+    ./backup.sh
+    ```
+2.  **Dry Run:** Run the cleanup in dry-run mode to see how many groups will be merged.
+    ```bash
+    ./scripts/cleanup-swim-duplicates.sh --dry-run
+    ```
+3.  **Review:** Review the output logs for the number of groups and rows to be merged.
+4.  **Apply:** If satisfied, run with the `--apply` flag. This script includes an interactive confirmation and the underlying maintenance command has a 10-second safety delay.
+    ```bash
+    ./scripts/cleanup-swim-duplicates.sh --apply
+    ```
+5.  **Verify:** Run the duplicate report query found in `swim-ingestor/db.py` or re-run the dry-run cleanup to confirm zero duplicates remain.
+6.  **Ingestion:** Continue normal SWIM ingestion. Future duplicates are prevented by the improved upsert logic.
+
+Manual docker command (if preferred):
+```bash
+docker compose --profile swim run --rm --entrypoint python swim-ingestor main.py cleanup-duplicates --dry-run
+```
+
 ### Schema
 
 `api/Data/swim_schema.sql` contains `CREATE TABLE IF NOT EXISTS` DDL for all SWIM tables. It does not alter existing BTS history tables and is safe to re-run.
