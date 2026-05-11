@@ -75,7 +75,24 @@ echo "Route-ready rows:       $route_ready (has origin, dest, known carrier)"
 echo "Rows with timestamps:   $has_times (sched/actual dep/arr)"
 echo "Rows with aircraft:     $has_aircraft"
 echo "Rows with 4-char ICAO:  $non_3_char_airports (e.g. non-US international)"
-echo "Commercial indicators:  $commercial_user (from enrichment)"
+echo ""
+
+echo "--- Enrichment Quality & Commercial Classification ---"
+comm_cand=$(run_query "SELECT COUNT(*) FROM observed_flights f JOIN observed_flight_enrichment e ON f.source_flight_id = e.source_flight_id WHERE f.origin_iata IS NOT NULL AND f.dest_iata IS NOT NULL AND f.callsign NOT REGEXP '^N[1-9][0-9]{0,4}[A-Z]{0,2}$' AND (f.carrier_code NOT IN ('XXX', 'UNK', 'UNKNOWN', '') OR e.operating_carrier_code NOT IN ('XXX', 'UNK', 'UNKNOWN', '')) AND (e.user_category = 'COMMERCIAL' OR e.flight_type = 'SCHEDULED' OR (e.aircraft_category = 'JET' AND f.carrier_code IS NOT NULL) OR (f.carrier_code IS NOT NULL AND f.carrier_code NOT IN ('XXX', 'UNK', 'UNKNOWN', '')));")
+
+ga_private=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment e LEFT JOIN observed_flights f ON e.source_flight_id = f.source_flight_id WHERE e.user_category = 'GENERAL AVIATION' OR f.callsign REGEXP '^N[1-9][0-9]{0,4}[A-Z]{0,2}$';")
+
+unk_carrier=$(run_query "SELECT COUNT(*) FROM observed_flights f LEFT JOIN observed_flight_enrichment e ON f.source_flight_id = e.source_flight_id WHERE (f.carrier_code IS NULL OR f.carrier_code IN ('XXX', 'UNK', 'UNKNOWN', '')) AND (e.operating_carrier_code IS NULL OR e.operating_carrier_code IN ('XXX', 'UNK', 'UNKNOWN', ''));")
+
+route_ident=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE route_of_flight IS NOT NULL OR departure_procedure IS NOT NULL OR arrival_procedure IS NOT NULL;")
+
+op_non_comm=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE operating_carrier_code IS NOT NULL AND user_category != 'COMMERCIAL' AND flight_type != 'SCHEDULED' AND user_category != 'GENERAL AVIATION';")
+
+echo "Commercial route candidates: $comm_cand"
+echo "GA/private indicators:       $ga_private"
+echo "Unknown/XXX carrier rows:    $unk_carrier"
+echo "Enrich. rows w/ route ident: $route_ident"
+echo "Op carrier but non-comm/GA:  $op_non_comm"
 echo ""
 
 echo "--- observed_flight_enrichment Data Quality ---"

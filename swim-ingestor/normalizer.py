@@ -30,6 +30,7 @@ Out of scope for FlightConn route-intelligence:
 from lxml import etree
 import logging
 from datetime import datetime, timezone
+import re
 
 log = logging.getLogger('swim-ingestor.normalizer')
 
@@ -256,6 +257,61 @@ def is_route_ready(flight_data: dict) -> bool:
     if not orig or not dest or len(orig) not in (3, 4) or len(dest) not in (3, 4):
         return False
     return True
+
+def is_commercial_candidate(flight_data: dict) -> bool:
+    """
+    Heuristic to determine if a normalized flight record represents commercial airline activity.
+    Helps filter out General Aviation, private tail numbers, and incomplete track data.
+    Does not require route identity (origin/destination).
+    """
+    if not flight_data:
+        return False
+
+    callsign = flight_data.get('callsign') or ''
+    carrier_code = flight_data.get('carrier_code')
+    
+    enrich = flight_data.get('enrichment') or {}
+    user_cat = enrich.get('user_category')
+    op_carrier = enrich.get('operating_carrier_code')
+
+    # Exclude explicit GA
+    if user_cat == 'GENERAL AVIATION':
+        return False
+
+    # Exclude explicit unknown/generic carriers
+    bad_carriers = ('XXX', 'UNK', 'UNKNOWN', 'UNKN', '')
+    if (carrier_code in bad_carriers or carrier_code is None) and (op_carrier in bad_carriers or op_carrier is None):
+        return False
+
+    # Exclude US private tail numbers (starts with N, then 1-5 digits/letters, no airline prefix)
+    # e.g., N12345, N123AB. Commercial flight numbers usually have carrier prefix like DAL123.
+    if re.match(r'^N[1-9][0-9]{0,4}[A-Z]{0,2}$', callsign):
+        return False
+
+    # Positive indicators
+    if user_cat == 'COMMERCIAL':
+        return True
+    if enrich.get('flight_type') == 'SCHEDULED':
+        return True
+        
+    # Known carrier check
+    KNOWN_CARRIERS = set(_CARRIER_MAP.keys()) | set(_CARRIER_MAP.values())
+    is_known_carrier = (carrier_code in KNOWN_CARRIERS) or (op_carrier in KNOWN_CARRIERS)
+    
+    if is_known_carrier:
+        return True
+        
+    return False
+
+def is_commercial_route_candidate(flight_data: dict) -> bool:
+    """
+    Same as is_commercial_candidate, but also requires origin and destination.
+    """
+    orig = flight_data.get('origin_iata')
+    dest = flight_data.get('dest_iata')
+    if not orig or not dest:
+        return False
+    return is_commercial_candidate(flight_data)
 
 def _recursive_unpack(queue_label: str, element: etree._Element, records: list, stats: dict):
     """Recursively unpack MessageCollection or process standard elements."""

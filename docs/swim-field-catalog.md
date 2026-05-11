@@ -90,6 +90,16 @@ STDDS provides high-frequency surface and terminal data. For FlightConn, STDDS i
 **Key Fields:** `userCategory`, `flightType`, `aircraft_type`.
 **Implementation:** The enrichment table stores `userCategory` (e.g., COMMERCIAL vs GENERAL AVIATION) and `flightType` (e.g., SCHEDULED) so the aggregator can confidently filter out private jet traffic, keeping the route opportunity scores focused strictly on commercial service.
 
+### Commercial Candidate Heuristic
+FlightConn uses a heuristic to distinguish commercial airline activity from general aviation (GA) and private flights. A record is considered a **Commercial Candidate** if:
+- `user_category` is `COMMERCIAL` OR `flight_type` is `SCHEDULED`.
+- OR `aircraft_category` is `JET` (with a known carrier).
+- AND it has valid route identity (origin/destination).
+- AND it does not use a US private tail number callsign (e.g., `N12345`).
+- AND the carrier is not `XXX`, `UNK`, or `UNKN`.
+
+*Note: This "commercial candidate" flag is purely a heuristic for strategic analytics within FlightConn. It is not an official FAA or DOT operational classification.*
+
 ## Storage Plan: "Analysis-Worthy" Architecture
 To prevent bloating the normalized `observed_flights` table while still capturing analysis-worthy fields, FlightConn uses a hybrid model:
 1. **Core Normalized Table (`observed_flights`)**: Stores only fields directly used for route/carrier deduplication and basic aggregation (identity, airports, timing, status, basic aircraft type).

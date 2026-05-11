@@ -209,5 +209,87 @@ class TestNormalizer(unittest.TestCase):
         self.assertEqual(enrich.get('operating_carrier_code'), 'AAL')
         self.assertEqual(enrich.get('flight_type'), 'SCHEDULED')
 
+    def test_commercial_candidate_jet_carrier(self):
+        from normalizer import is_commercial_route_candidate
+        flight_data = {
+            'callsign': 'DAL123',
+            'carrier_code': 'DL',
+            'origin_iata': 'ATL',
+            'dest_iata': 'LAX',
+            'enrichment': {
+                'aircraft_category': 'JET',
+                'user_category': None
+            }
+        }
+        self.assertTrue(is_commercial_route_candidate(flight_data))
+
+    def test_commercial_flight_vs_route_candidate(self):
+        from normalizer import is_commercial_candidate, is_commercial_route_candidate
+        flight_data = {
+            'callsign': 'DAL123',
+            'carrier_code': 'DL',
+            'origin_iata': None,
+            'dest_iata': None,
+            'enrichment': {
+                'user_category': 'COMMERCIAL'
+            }
+        }
+        self.assertTrue(is_commercial_candidate(flight_data))
+        self.assertFalse(is_commercial_route_candidate(flight_data))
+
+    def test_unknown_operator_not_commercial(self):
+        from normalizer import is_commercial_candidate
+        flight_data = {
+            'callsign': 'XYZ123',
+            'carrier_code': 'XYZ',
+            'origin_iata': 'ATL',
+            'dest_iata': 'LAX',
+            'enrichment': {
+                'user_category': None,
+                'flight_type': None
+            }
+        }
+        # XYZ is not in KNOWN_CARRIERS and no COMMERCIAL tag
+        self.assertFalse(is_commercial_candidate(flight_data))
+
+    def test_ga_jet_not_commercial(self):
+        from normalizer import is_commercial_candidate
+        flight_data = {
+            'callsign': 'XYZ123',
+            'carrier_code': 'XYZ',
+            'origin_iata': 'ATL',
+            'dest_iata': 'LAX',
+            'enrichment': {
+                'user_category': 'GENERAL AVIATION',
+                'aircraft_category': 'JET'
+            }
+        }
+        self.assertFalse(is_commercial_candidate(flight_data))
+        
+    def test_xxx_unk_excluded(self):
+        from normalizer import is_commercial_candidate
+        for code in ['XXX', 'UNK', 'UNKNOWN', 'UNKN']:
+            flight_data = {
+                'callsign': 'FLT123',
+                'carrier_code': code,
+                'origin_iata': 'ATL',
+                'dest_iata': 'LAX',
+                'enrichment': {
+                    'user_category': 'COMMERCIAL'
+                }
+            }
+            self.assertFalse(is_commercial_candidate(flight_data))
+
+    def test_tail_number_not_commercial(self):
+        from normalizer import is_commercial_candidate
+        flight_data = {
+            'callsign': 'N789AB',
+            'carrier_code': 'AA', # Mistakenly mapped or overlapping
+            'origin_iata': 'DFW',
+            'dest_iata': 'AUS',
+            'enrichment': {}
+        }
+        self.assertFalse(is_commercial_candidate(flight_data))
+
 if __name__ == '__main__':
     unittest.main()
