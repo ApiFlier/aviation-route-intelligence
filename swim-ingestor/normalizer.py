@@ -157,6 +157,22 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     if not raw_status: raw_status = _first_text(root, ".//*[local-name()='fdpsFlightStatus']")
     if not raw_status: raw_status = _first_text(root, ".//*[local-name()='status']")
     status = _map_status(raw_status)
+    
+    # Enrichment fields for analysis
+    major_carrier = root.get('major')
+    operating_carrier = airline
+    user_category = _first_text(root, ".//*[local-name()='userCategory']")
+    aircraft_category = _first_text(root, ".//*[local-name()='aircraftCategory']")
+    flight_type = _first_text(root, ".//*[local-name()='flightType']")
+    
+    route_of_flight = _first_text(root, ".//*[local-name()='routeOfFlight']")
+    if not route_of_flight: route_of_flight = _first_text(root, ".//*[local-name()='newRouteOfFlight']/*[local-name()='legacyFormat']")
+    if not route_of_flight: route_of_flight = _first_text(root, ".//*[local-name()='agreed']/*[local-name()='nasRouteText']")
+    
+    route_amended = 1 if _first_text(root, ".//*[local-name()='newRouteOfFlight']") else 0
+    
+    departure_procedure = _first_text(root, ".//*[local-name()='dp']/*[local-name()='routeName']")
+    arrival_procedure = _first_text(root, ".//*[local-name()='star']/*[local-name()='routeName']")
 
     debug_tags = [etree.QName(c).localname for c in root.iter() if isinstance(c, etree._Element)][:20]
 
@@ -188,7 +204,20 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
             'actual_dep_utc': _clean_time(actual_dep_utc),
             'sched_arr_utc': _clean_time(sched_arr_utc),
             'actual_arr_utc': _clean_time(actual_arr_utc),
-            'data_source': 'FAA_SWIM'
+            'data_source': 'FAA_SWIM',
+            'enrichment': {
+                'source_system': queue_label,
+                'message_type': local_name[:50],
+                'operating_carrier_code': operating_carrier[:10] if operating_carrier else None,
+                'major_carrier_code': major_carrier[:10] if major_carrier else None,
+                'flight_type': flight_type[:50] if flight_type else None,
+                'user_category': user_category[:50] if user_category else None,
+                'aircraft_category': aircraft_category[:50] if aircraft_category else None,
+                'route_of_flight': route_of_flight,
+                'departure_procedure': departure_procedure[:50] if departure_procedure else None,
+                'arrival_procedure': arrival_procedure[:50] if arrival_procedure else None,
+                'route_amended': route_amended
+            }
         }
     }
 

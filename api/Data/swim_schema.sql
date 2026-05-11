@@ -133,6 +133,26 @@ CREATE TABLE IF NOT EXISTS observed_flight_events (
     FOREIGN KEY (flight_id) REFERENCES observed_flights(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Companion enrichment table for analysis-worthy fields
+-- Stores fields that support future route, carrier, reliability, and delay analysis
+-- Keyed by source_flight_id to allow easy upserts alongside observed_flights
+CREATE TABLE IF NOT EXISTS observed_flight_enrichment (
+    source_flight_id       VARCHAR(50) NOT NULL PRIMARY KEY,
+    source_system          VARCHAR(50),
+    message_type           VARCHAR(50),
+    operating_carrier_code VARCHAR(10),
+    major_carrier_code     VARCHAR(10),
+    flight_type            VARCHAR(50),
+    user_category          VARCHAR(50),
+    aircraft_category      VARCHAR(50),
+    route_of_flight        TEXT,
+    departure_procedure    VARCHAR(50),
+    arrival_procedure      VARCHAR(50),
+    route_amended          TINYINT(1) DEFAULT 0,
+    last_updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_cat     (user_category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Layer 2: App-Facing Intelligence Summaries

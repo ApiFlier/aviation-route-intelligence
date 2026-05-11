@@ -249,6 +249,8 @@ The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely
 
 **Disclaimer:** Data obtained via the SWIM Cloud Distribution Service (SCDS) is NOT for OPERATIONAL USE. All data has been pre-approved for public release by the NAS Data Release Board (NDRB). Extracted times are derived from public-release messages and do not represent official airline schedule data. FlightConn uses STDDS and other data sources for enrichment only, not for live tracking.
 
+For a detailed breakdown of the fields extracted from FAA SWIM and their target dashboards, see the **[SWIM Field Catalog](docs/swim-field-catalog.md)**.
+
 An optional sidecar (`flightconn-swim-ingestor`) can ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. `setup.sh` auto-detects whether SWIM is ready — no flags to set.
 
 **Current status: FAA SWIM recent route activity pipeline implemented.** When FAA credentials and queues are configured, the optional sidecar can connect to FAA SWIM through Solace PubSub+, normalize recent flight activity, aggregate route-level summaries, and expose recent activity context through the backend API and UI. The core app still runs normally without SWIM, and raw message payloads are not stored or displayed.

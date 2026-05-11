@@ -191,6 +191,7 @@ def upsert_observed_flight(flight_data: dict) -> bool:
     if not flight_data or not flight_data.get('source_flight_id'):
         return False
         
+    enrichment = flight_data.get('enrichment')
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -227,6 +228,36 @@ def upsert_observed_flight(flight_data: dict) -> bool:
                     last_updated_at = CURRENT_TIMESTAMP
             '''
             cur.execute(sql, flight_data)
+            
+            if enrichment:
+                enrichment['source_flight_id'] = flight_data['source_flight_id']
+                sql_enrich = '''
+                    INSERT INTO observed_flight_enrichment (
+                        source_flight_id, source_system, message_type,
+                        operating_carrier_code, major_carrier_code, flight_type,
+                        user_category, aircraft_category, route_of_flight,
+                        departure_procedure, arrival_procedure, route_amended
+                    ) VALUES (
+                        %(source_flight_id)s, %(source_system)s, %(message_type)s,
+                        %(operating_carrier_code)s, %(major_carrier_code)s, %(flight_type)s,
+                        %(user_category)s, %(aircraft_category)s, %(route_of_flight)s,
+                        %(departure_procedure)s, %(arrival_procedure)s, %(route_amended)s
+                    ) ON DUPLICATE KEY UPDATE
+                        source_system = COALESCE(VALUES(source_system), source_system),
+                        message_type = COALESCE(VALUES(message_type), message_type),
+                        operating_carrier_code = COALESCE(VALUES(operating_carrier_code), operating_carrier_code),
+                        major_carrier_code = COALESCE(VALUES(major_carrier_code), major_carrier_code),
+                        flight_type = COALESCE(VALUES(flight_type), flight_type),
+                        user_category = COALESCE(VALUES(user_category), user_category),
+                        aircraft_category = COALESCE(VALUES(aircraft_category), aircraft_category),
+                        route_of_flight = COALESCE(VALUES(route_of_flight), route_of_flight),
+                        departure_procedure = COALESCE(VALUES(departure_procedure), departure_procedure),
+                        arrival_procedure = COALESCE(VALUES(arrival_procedure), arrival_procedure),
+                        route_amended = GREATEST(VALUES(route_amended), route_amended),
+                        last_updated_at = CURRENT_TIMESTAMP
+                '''
+                cur.execute(sql_enrich, enrichment)
+
         conn.commit()
         return True
     except Exception as e:

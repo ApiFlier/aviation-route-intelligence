@@ -46,11 +46,13 @@ run_query() {
 
 echo "--- Data Volume ---"
 observed_count=$(run_query "SELECT COUNT(*) FROM observed_flights;")
+enrichment_count=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment;")
 rra_count=$(run_query "SELECT COUNT(*) FROM recent_route_activity;")
 rrca_count=$(run_query "SELECT COUNT(*) FROM recent_route_carrier_activity;")
 rhr_count=$(run_query "SELECT COUNT(*) FROM route_historical_recent_comparison;")
 
 echo "observed_flights:                   $observed_count"
+echo "observed_flight_enrichment:         $enrichment_count"
 echo "recent_route_activity:              $rra_count"
 echo "recent_route_carrier_activity:      $rrca_count"
 echo "route_historical_recent_comparison: $rhr_count"
@@ -62,12 +64,18 @@ has_origin=$(run_query "SELECT COUNT(*) FROM observed_flights WHERE origin_iata 
 has_dest=$(run_query "SELECT COUNT(*) FROM observed_flights WHERE dest_iata IS NOT NULL;")
 route_ready=$(run_query "SELECT COUNT(*) FROM observed_flights WHERE origin_iata IS NOT NULL AND dest_iata IS NOT NULL AND carrier_code IS NOT NULL AND carrier_code <> 'UNK';")
 has_times=$(run_query "SELECT COUNT(*) FROM observed_flights WHERE sched_dep_utc IS NOT NULL OR actual_dep_utc IS NOT NULL OR sched_arr_utc IS NOT NULL OR actual_arr_utc IS NOT NULL;")
+has_aircraft=$(run_query "SELECT COUNT(*) FROM observed_flights WHERE aircraft_type IS NOT NULL;")
+non_3_char_airports=$(run_query "SELECT COUNT(*) FROM observed_flights WHERE LENGTH(origin_iata) > 3 OR LENGTH(dest_iata) > 3;")
+commercial_user=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE user_category = 'COMMERCIAL' OR flight_type = 'SCHEDULED';")
 
 echo "Rows with carrier_code: $has_carrier"
 echo "Rows with origin_iata:  $has_origin"
 echo "Rows with dest_iata:    $has_dest"
 echo "Route-ready rows:       $route_ready (has origin, dest, known carrier)"
 echo "Rows with timestamps:   $has_times (sched/actual dep/arr)"
+echo "Rows with aircraft:     $has_aircraft"
+echo "Rows with 4-char ICAO:  $non_3_char_airports (e.g. non-US international)"
+echo "Commercial indicators:  $commercial_user (from enrichment)"
 echo ""
 
 echo "--- Timeline ---"
