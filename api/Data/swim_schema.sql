@@ -77,8 +77,8 @@ CREATE TABLE IF NOT EXISTS observed_flights (
     carrier_code     VARCHAR(10),
     flight_number    VARCHAR(10),
     -- Route
-    origin_iata      VARCHAR(3),
-    dest_iata        VARCHAR(3),
+    origin_iata      VARCHAR(4),
+    dest_iata        VARCHAR(4),
     -- Schedule and actuals (UTC)
     sched_dep_utc    DATETIME,
     actual_dep_utc   DATETIME,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS observed_flights (
     flight_status    ENUM('scheduled','active','completed','cancelled','diverted','unknown')
                          NOT NULL DEFAULT 'unknown',
     cancel_code      VARCHAR(5),
-    divert_airport   VARCHAR(3),
+    divert_airport   VARCHAR(4),
     aircraft_type    VARCHAR(10),
     -- Audit
     first_seen_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS observed_flight_events (
                     'position'
                 ) NOT NULL,
     event_utc   DATETIME(3)     NOT NULL,
-    airport     VARCHAR(3),
+    airport     VARCHAR(4),
     detail_json JSON,
     INDEX idx_flight        (flight_id),
     INDEX idx_type_time     (event_type, event_utc),
@@ -168,8 +168,8 @@ CREATE TABLE IF NOT EXISTS observed_flight_enrichment (
 -- the backend makes this call so the frontend does not hardcode thresholds.
 CREATE TABLE IF NOT EXISTS recent_route_activity (
     id                     INT UNSIGNED    NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    origin_iata            VARCHAR(3)      NOT NULL,
-    dest_iata              VARCHAR(3)      NOT NULL,
+    origin_iata            VARCHAR(4)      NOT NULL,
+    dest_iata              VARCHAR(4)      NOT NULL,
     coverage_start_date    DATE            NOT NULL,
     coverage_end_date      DATE            NOT NULL,
     coverage_days          SMALLINT UNSIGNED NOT NULL DEFAULT 0,
@@ -207,8 +207,8 @@ CREATE TABLE IF NOT EXISTS recent_route_activity (
 -- One row per (origin, destination, carrier). Refreshed alongside recent_route_activity.
 CREATE TABLE IF NOT EXISTS recent_route_carrier_activity (
     id                  INT UNSIGNED    NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    origin_iata         VARCHAR(3)      NOT NULL,
-    dest_iata           VARCHAR(3)      NOT NULL,
+    origin_iata         VARCHAR(4)      NOT NULL,
+    dest_iata           VARCHAR(4)      NOT NULL,
     carrier_code        VARCHAR(10)     NOT NULL,
     coverage_start_date DATE            NOT NULL,
     coverage_end_date   DATE            NOT NULL,
@@ -240,8 +240,8 @@ CREATE TABLE IF NOT EXISTS recent_route_carrier_activity (
 -- differences rather than a confirmed route exit.
 CREATE TABLE IF NOT EXISTS route_historical_recent_comparison (
     id                       INT UNSIGNED    NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    origin_iata              VARCHAR(3)      NOT NULL,
-    dest_iata                VARCHAR(3)      NOT NULL,
+    origin_iata              VARCHAR(4)      NOT NULL,
+    dest_iata                VARCHAR(4)      NOT NULL,
     carrier_code             VARCHAR(10)     NOT NULL,
     in_historical_data       TINYINT(1)      NOT NULL DEFAULT 0,
     in_recent_activity       TINYINT(1)      NOT NULL DEFAULT 0,

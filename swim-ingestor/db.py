@@ -191,7 +191,7 @@ def upsert_observed_flight(flight_data: dict) -> bool:
     if not flight_data or not flight_data.get('source_flight_id'):
         return False
         
-    enrichment = flight_data.get('enrichment')
+    enrichment = flight_data.pop('enrichment', None)
     conn = get_connection()
     try:
         with conn.cursor() as cur:
