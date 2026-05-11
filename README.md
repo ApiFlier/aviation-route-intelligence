@@ -291,6 +291,23 @@ FAA SWIM access requires a completed [SWIM Service Access Agreement](https://www
 
 ### Maintenance & Troubleshooting
 
+#### Profiling SWIM Data Quality
+To quickly check the health and data quality of your SWIM ingestion without starting ingestion or exposing secrets:
+
+```bash
+./scripts/profile-swim-data.sh
+```
+
+**What the key numbers mean:**
+- **System Status:** Indicates if the database and the SWIM sidecar are running.
+- **Data Volume:** Total counts across the key tables.
+- **Route-ready rows:** Flights that have an origin, destination, and a known carrier code. These are the rows that contribute to the frontend's recent activity indicators.
+- **Timeline:** The earliest and latest timestamps recorded. Note that these are observation timestamps and should *not* be interpreted as official airline schedule data.
+- **Duplicates:** Summary of duplicate `source_flight_id` records. If you see high duplicate counts, you can run the duplicate cleanup script (which defaults to dry-run).
+- **recent_route_activity Freshness:** Shows when the activity aggregations were last updated.
+
+*Note: Duplicate cleanup is a separate process. The profile script is strictly read-only.*
+
 #### Duplicate SWIM Observations
 If you observe duplicate `source_flight_id` (GUFI) rows in `observed_flights` (often one partial and one complete), you can merge them using the maintenance script. This consolidates data and preserves the best-known route information.
 
