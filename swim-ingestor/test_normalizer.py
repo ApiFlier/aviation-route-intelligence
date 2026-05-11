@@ -1,5 +1,5 @@
 import unittest
-from normalizer import parse_swim_message
+from normalizer import parse_swim_message, is_route_ready
 
 class TestNormalizer(unittest.TestCase):
     def test_message_collection_nested_flight(self):
@@ -67,6 +67,106 @@ class TestNormalizer(unittest.TestCase):
         self.assertEqual(len(res['records']), 1)
         self.assertFalse(res['records'][0]['success'])
         self.assertIn('Missing GUFI', res['records'][0]['skip_reason'])
+
+    def test_tfms_flight_times(self):
+        xml = b'''
+        <tfmDataService>
+            <flight gufi="TFM123" acid="DAL123">
+                <originalDeparture>2026-05-11T12:00:00Z</originalDeparture>
+                <timeOfDeparture estimated="false">2026-05-11T12:05:00Z</timeOfDeparture>
+                <airlineOnTime>2026-05-11T14:30:00Z</airlineOnTime>
+                <originalArrival>2026-05-11T14:35:00Z</originalArrival>
+            </flight>
+        </tfmDataService>
+        '''
+        res = parse_swim_message('TFMS', xml)
+        self.assertTrue(res['success'])
+        fd = res['records'][0]['flight_data']
+        self.assertEqual(fd['sched_dep_utc'], '2026-05-11 12:00:00')
+        self.assertEqual(fd['actual_dep_utc'], '2026-05-11 12:05:00')
+        self.assertEqual(fd['actual_arr_utc'], '2026-05-11 14:30:00')
+        self.assertEqual(fd['sched_arr_utc'], '2026-05-11 14:35:00')
+
+    def test_tfms_flight_route_and_aircraft(self):
+        xml = b'''
+        <tfmDataService>
+            <flight gufi="TFM124" acid="UAL124">
+                <aircraftModel>B738</aircraftModel>
+            </flight>
+        </tfmDataService>
+        '''
+        res = parse_swim_message('TFMS', xml)
+        self.assertTrue(res['success'])
+        fd = res['records'][0]['flight_data']
+        self.assertEqual(fd['aircraft_type'], 'B738')
+
+    def test_sfdps_runway_times_and_aircraft(self):
+        xml = b'''
+        <MessageCollection>
+            <flight gufi="S123">
+                <flightIdentification aircraftIdentification="AAL123"/>
+                <departure><runwayTime><actual><time>2026-05-11T12:10:00Z</time></actual></runwayTime></departure>
+                <arrival><runwayTime><estimated><time>2026-05-11T15:10:00Z</time></estimated></runwayTime></arrival>
+                <aircraftDescription><aircraftType><icaoModelIdentifier>A321</icaoModelIdentifier></aircraftType></aircraftDescription>
+            </flight>
+        </MessageCollection>
+        '''
+        res = parse_swim_message('SFDPS', xml)
+        self.assertTrue(res['success'])
+        fd = res['records'][0]['flight_data']
+        self.assertEqual(fd['actual_dep_utc'], '2026-05-11 12:10:00')
+        self.assertEqual(fd['sched_arr_utc'], '2026-05-11 15:10:00')
+        self.assertEqual(fd['aircraft_type'], 'A321')
+
+    def test_stdds_enrichment(self):
+        xml = b'''
+        <asdexMsg>
+            <enhancedData>
+                <eramGufi>E123</eramGufi>
+                <callsign>SWA123</callsign>
+                <departureAirport>KDAL</departureAirport>
+                <destinationAirport>KHOU</destinationAirport>
+                <aircraftType>B737</aircraftType>
+            </enhancedData>
+        </asdexMsg>
+        '''
+        res = parse_swim_message('STDDS', xml)
+        self.assertTrue(res['success'])
+        fd = res['records'][0]['flight_data']
+        self.assertEqual(fd['source_flight_id'], 'E123')
+        self.assertEqual(fd['callsign'], 'SWA123')
+        self.assertEqual(fd['origin_iata'], 'DAL')
+        self.assertEqual(fd['dest_iata'], 'HOU')
+        self.assertEqual(fd['aircraft_type'], 'B737')
+        self.assertTrue(is_route_ready(fd))
+
+    def test_stdds_track_only_no_identity(self):
+        xml = b'''
+        <positionReport>
+            <track>
+                <status>ACTIVE</status>
+                <mrtTime>2026-05-11T12:00:00Z</mrtTime>
+            </track>
+        </positionReport>
+        '''
+        res = parse_swim_message('STDDS', xml)
+        self.assertTrue(res['success'])
+        self.assertFalse(res['records'][0]['success'])
+        self.assertIn('Missing GUFI', res['records'][0]['skip_reason'])
+
+    def test_non_us_icao_normalization(self):
+        xml = b'''
+        <flight gufi="INTL1" acid="ACA1">
+            <departurePoint><locationIndicator>CYYZ</locationIndicator></departurePoint>
+            <arrivalPoint><locationIndicator>SKBO</locationIndicator></arrivalPoint>
+        </flight>
+        '''
+        res = parse_swim_message('SFDPS', xml)
+        self.assertTrue(res['success'])
+        fd = res['records'][0]['flight_data']
+        self.assertEqual(fd['origin_iata'], 'CYYZ')
+        self.assertEqual(fd['dest_iata'], 'SKBO')
+        self.assertTrue(is_route_ready(fd))
 
 if __name__ == '__main__':
     unittest.main()

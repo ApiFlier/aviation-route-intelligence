@@ -91,8 +91,10 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     # ACID lookup
     acid = root.get('acid')
     if not acid: acid = _first_text(root, ".//*[local-name()='acid']")
+    if not acid: acid = _first_text(root, ".//*[local-name()='flightIdentification']/@aircraftIdentification")
     if not acid: acid = _first_text(root, ".//*[local-name()='aircraftIdentification']")
     if not acid: acid = _first_text(root, ".//*[local-name()='callSign']")
+    if not acid: acid = _first_text(root, ".//*[local-name()='callsign']")
     if not acid: acid = _first_text(root, ".//*[local-name()='aircraftId']")
     if not acid: acid = _first_text(root, ".//*[local-name()='flightId']")
 
@@ -128,6 +130,7 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
 
     # Aircraft Type
     aircraft_type = _first_text(root, ".//*[local-name()='aircraftType']//*[local-name()='type']")
+    if not aircraft_type: aircraft_type = _first_text(root, ".//*[local-name()='aircraftType']")
     if not aircraft_type: aircraft_type = _first_text(root, ".//*[local-name()='aircraftModel']")
     if not aircraft_type: aircraft_type = _first_text(root, ".//*[local-name()='aircraftSpecification']")
     if not aircraft_type: aircraft_type = _first_text(root, ".//*[local-name()='icaoModelIdentifier']")
@@ -162,8 +165,8 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     if not acid or acid in ('UNKN', 'UNKNOWN', 'UNK'):
         return {'success': False, 'skip_reason': f'Missing or UNKN ACID. Tags: {debug_tags}', 'message_type': local_name}
 
-    if origin and len(origin) != 3: origin = None
-    if dest and len(dest) != 3: dest = None
+    if origin and len(origin) not in (3, 4): origin = None
+    if dest and len(dest) not in (3, 4): dest = None
 
     carrier_icao = airline if airline else (''.join([c for c in acid if c.isalpha()])[:3] if acid else None)
     carrier_code = _map_carrier(carrier_icao)
@@ -177,8 +180,8 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
             'source_flight_id': gufi,
             'callsign': acid,
             'carrier_code': carrier_code,
-            'origin_iata': origin[:3] if origin else None,
-            'dest_iata': dest[:3] if dest else None,
+            'origin_iata': origin[:4] if origin else None,
+            'dest_iata': dest[:4] if dest else None,
             'flight_status': status,
             'aircraft_type': aircraft_type[:10] if aircraft_type else None,
             'sched_dep_utc': _clean_time(sched_dep_utc),
@@ -195,8 +198,8 @@ def is_route_ready(flight_data: dict) -> bool:
     Criteria:
     - Must have source_flight_id (GUFI)
     - Must have callsign (ACID)
-    - Must have 3-letter origin_iata
-    - Must have 3-letter dest_iata
+    - Must have 3 or 4-letter origin_iata
+    - Must have 3 or 4-letter dest_iata
     - Must have carrier_code
     - Carrier code must not be UNK or XXX
     """
@@ -207,7 +210,7 @@ def is_route_ready(flight_data: dict) -> bool:
         return False
     orig = flight_data.get('origin_iata')
     dest = flight_data.get('dest_iata')
-    if not orig or not dest or len(orig) != 3 or len(dest) != 3:
+    if not orig or not dest or len(orig) not in (3, 4) or len(dest) not in (3, 4):
         return False
     return True
 
