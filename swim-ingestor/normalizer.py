@@ -2,6 +2,29 @@
 FlightConn SWIM Ingestor — Normalizer
 Parses FAA SWIM XML messages and extracts flight identity, route, and status.
 Returns normalized data for `observed_flights` if minimum fields are present.
+
+SWIM/SCDS data is NOT for operational use. It provides advisory recent-activity
+context only.
+
+Extraction Matrix:
+| Field            | TFMS                                     | SFDPS                                     | STDDS (Enrichment Only)           | Target Column      |
+|------------------|------------------------------------------|-------------------------------------------|-----------------------------------|--------------------|
+| source_flight_id | gufi                                     | gufi                                      | enhancedData/eramGufi             | source_flight_id   |
+| callsign         | aircraftId, acid                         | flightIdentification/aircraftIdent...     | flightId/aircraftId, acid, etc.   | callsign           |
+| carrier_code     | airline, derived from callsign           | operator/organization, derived            | derived from callsign             | carrier_code       |
+| origin_iata      | depArpt, departurePoint                  | departurePoint                              | departureAirport                  | origin_iata        |
+| dest_iata        | arrArpt, arrivalPoint                    | arrivalPoint                              | destinationAirport                | dest_iata          |
+| sched_dep_utc    | originalDeparture, igtd                  |                                           |                                   | sched_dep_utc      |
+| actual_dep_utc   | timeOfDeparture(est=false), runwayDep... | departure/runwayTime/actual               |                                   | actual_dep_utc     |
+| sched_arr_utc    | originalArrival                          | arrival/runwayTime/estimated              |                                   | sched_arr_utc      |
+| actual_arr_utc   | airlineOnTime, airlineInTime             | arrival/runwayTime/actual                 |                                   | actual_arr_utc     |
+| aircraft_type    | aircraftModel, aircraftSpecification     | aircraftDescription/icaoModelIdent...     | aircraftType, acType              | aircraft_type      |
+| flight_status    | flightStatus                             | fdpsFlightStatus                          | status                            | flight_status      |
+
+Out of scope for FlightConn route-intelligence:
+- Live position data (lat/lon, altitude, speed)
+- STDDS surface/track records without route identity
+- Route geometry (fixes, sectors, airways)
 """
 
 from lxml import etree
@@ -48,89 +71,105 @@ def _map_status(raw_status: str) -> str:
     if 'div' in s: return 'diverted'
     return 'unknown'
 
+def _clean_time(raw_str: str) -> str:
+    if not raw_str:
+        return None
+    # Strip T and Z to format for MySQL DATETIME
+    return raw_str.replace('T', ' ').replace('Z', '')[:19]
+
 def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
     """Attempt to extract normalized flight data from a single message element."""
     local_name = etree.QName(root).localname if hasattr(root, 'tag') else 'unknown'
     
-    # We must restrict our search to the current flight element context, but handle local-name()
-    # Using .//*[local-name()='x'] searches descendants of the current 'root'.
-    
-    # GUFI lookup (can be an attribute on flight, or a child tag)
+    # GUFI lookup
     gufi = root.get('gufi')
-    if not gufi:
-        gufi = _first_text(root, ".//*[local-name()='gufi']")
-    if not gufi:
-        gufi = _first_text(root, ".//*[local-name()='eramGufi']")
-    if not gufi:
-        gufi = _first_text(root, ".//@gufi")
+    if not gufi: gufi = _first_text(root, ".//*[local-name()='gufi']")
+    if not gufi: gufi = _first_text(root, ".//*[local-name()='eramGufi']")
+    if not gufi: gufi = _first_text(root, ".//*[local-name()='sfdpsGufi']")
+    if not gufi: gufi = _first_text(root, ".//@gufi")
     
-    # ACID lookup (can be an attribute on flight, or flightIdentification, or callSign)
+    # ACID lookup
     acid = root.get('acid')
-    if not acid:
-        acid = _first_text(root, ".//*[local-name()='acid']")
-    if not acid:
-        acid = _first_text(root, ".//*[local-name()='flightIdentification']/@aircraftIdentification")
-    if not acid:
-        acid = _first_text(root, ".//*[local-name()='callSign']")
-    if not acid:
-        acid = _first_text(root, ".//*[local-name()='aircraftId']")
-    if not acid:
-        acid = _first_text(root, ".//*[local-name()='flightId']")
+    if not acid: acid = _first_text(root, ".//*[local-name()='acid']")
+    if not acid: acid = _first_text(root, ".//*[local-name()='aircraftIdentification']")
+    if not acid: acid = _first_text(root, ".//*[local-name()='callSign']")
+    if not acid: acid = _first_text(root, ".//*[local-name()='aircraftId']")
+    if not acid: acid = _first_text(root, ".//*[local-name()='flightId']")
 
-    # Route extraction logic: SFDPS / TFMS style
+    # Carrier code lookup
+    airline = _first_text(root, ".//*[local-name()='airline']")
+    if not airline: airline = _first_text(root, ".//*[local-name()='operator']//*[local-name()='organization']//*[local-name()='name']")
+
+    # Route extraction logic
     origin = _first_text(root, ".//*[local-name()='departurePoint']//*[local-name()='locationIndicator']")
     dest = _first_text(root, ".//*[local-name()='arrivalPoint']//*[local-name()='locationIndicator']")
     
-    if not origin:
-        origin = _first_text(root, ".//*[local-name()='departurePoint']//*[local-name()='airport']")
-    if not dest:
-        dest = _first_text(root, ".//*[local-name()='arrivalPoint']//*[local-name()='airport']")
+    if not origin: origin = _first_text(root, ".//*[local-name()='departurePoint']//*[local-name()='airport']")
+    if not dest: dest = _first_text(root, ".//*[local-name()='arrivalPoint']//*[local-name()='airport']")
 
-    # Fallbacks for locationIndicator missing
-    if not origin:
-        origin = _first_text(root, ".//*[local-name()='departurePoint']")
-    if not dest:
-        dest = _first_text(root, ".//*[local-name()='arrivalPoint']")
+    if not origin: origin = _first_text(root, ".//*[local-name()='departurePoint']")
+    if not dest: dest = _first_text(root, ".//*[local-name()='arrivalPoint']")
 
     # STDDS style
-    if not origin:
-        origin = _first_text(root, ".//*[local-name()='departureAerodrome']")
-    if not origin:
-        origin = _first_text(root, ".//*[local-name()='depArpt']")
+    if not origin: origin = _first_text(root, ".//*[local-name()='departureAerodrome']")
+    if not origin: origin = _first_text(root, ".//*[local-name()='depArpt']")
+    if not origin: origin = _first_text(root, ".//*[local-name()='departureAirport']")
         
-    if not dest:
-        dest = _first_text(root, ".//*[local-name()='arrivalAerodrome']")
-    if not dest:
-        dest = _first_text(root, ".//*[local-name()='arrArpt']")
+    if not dest: dest = _first_text(root, ".//*[local-name()='arrivalAerodrome']")
+    if not dest: dest = _first_text(root, ".//*[local-name()='arrArpt']")
+    if not dest: dest = _first_text(root, ".//*[local-name()='destinationAirport']")
 
+    # Airport normalization
+    # U.S. ICAO airports like KATL, KSFO, KJFK should normalize to ATL, SFO, JFK.
     if origin and len(origin) == 4 and origin.startswith('K'):
         origin = origin[1:]
     if dest and len(dest) == 4 and dest.startswith('K'):
         dest = dest[1:]
 
+    # Aircraft Type
     aircraft_type = _first_text(root, ".//*[local-name()='aircraftType']//*[local-name()='type']")
+    if not aircraft_type: aircraft_type = _first_text(root, ".//*[local-name()='aircraftModel']")
+    if not aircraft_type: aircraft_type = _first_text(root, ".//*[local-name()='aircraftSpecification']")
+    if not aircraft_type: aircraft_type = _first_text(root, ".//*[local-name()='icaoModelIdentifier']")
+    if not aircraft_type: aircraft_type = _first_text(root, ".//*[local-name()='acType']")
     
+    # Times
+    sched_dep_utc = _first_text(root, ".//*[local-name()='originalDeparture']")
+    if not sched_dep_utc: sched_dep_utc = _first_text(root, ".//*[local-name()='igtd']")
+    
+    actual_dep_utc = _first_text(root, ".//*[local-name()='timeOfDeparture'][@estimated='false']")
+    if not actual_dep_utc: actual_dep_utc = _first_text(root, ".//*[local-name()='etd'][@etdType='ACTUAL']/@timeValue")
+    if not actual_dep_utc: actual_dep_utc = _first_text(root, ".//*[local-name()='runwayDeparture']")
+    if not actual_dep_utc: actual_dep_utc = _first_text(root, ".//*[local-name()='airlineOffTime']")
+    if not actual_dep_utc: actual_dep_utc = _first_text(root, ".//*[local-name()='departure']//*[local-name()='runwayTime']/*[local-name()='actual']/*[local-name()='time']")
+    
+    sched_arr_utc = _first_text(root, ".//*[local-name()='originalArrival']")
+    if not sched_arr_utc: sched_arr_utc = _first_text(root, ".//*[local-name()='arrival']//*[local-name()='runwayTime']/*[local-name()='estimated']/*[local-name()='time']")
+
+    actual_arr_utc = _first_text(root, ".//*[local-name()='airlineOnTime']")
+    if not actual_arr_utc: actual_arr_utc = _first_text(root, ".//*[local-name()='airlineInTime']")
+    if not actual_arr_utc: actual_arr_utc = _first_text(root, ".//*[local-name()='arrival']//*[local-name()='runwayTime']/*[local-name()='actual']/*[local-name()='time']")
+
     raw_status = _first_text(root, ".//*[local-name()='flightStatus']")
+    if not raw_status: raw_status = _first_text(root, ".//*[local-name()='fdpsFlightStatus']")
+    if not raw_status: raw_status = _first_text(root, ".//*[local-name()='status']")
     status = _map_status(raw_status)
 
     debug_tags = [etree.QName(c).localname for c in root.iter() if isinstance(c, etree._Element)][:20]
 
     if not gufi:
         return {'success': False, 'skip_reason': f'Missing GUFI. Tags: {debug_tags}', 'message_type': local_name}
-    if not acid:
-        return {'success': False, 'skip_reason': f'Missing ACID. Tags: {debug_tags}', 'message_type': local_name}
+    if not acid or acid in ('UNKN', 'UNKNOWN', 'UNK'):
+        return {'success': False, 'skip_reason': f'Missing or UNKN ACID. Tags: {debug_tags}', 'message_type': local_name}
 
-    if origin and len(origin) != 3:
-        origin = None # Partial fallback instead of skipping
-    if dest and len(dest) != 3:
-        dest = None # Partial fallback instead of skipping
+    if origin and len(origin) != 3: origin = None
+    if dest and len(dest) != 3: dest = None
 
-    carrier_icao = ''.join([c for c in acid if c.isalpha()])[:3] if acid else None
+    carrier_icao = airline if airline else (''.join([c for c in acid if c.isalpha()])[:3] if acid else None)
     carrier_code = _map_carrier(carrier_icao)
+    if carrier_code in ('XXX', 'UNK', 'UNKNOWN', ''):
+        carrier_code = None
 
-    # A record is considered "route-ready" if it has both valid IATA origin and destination,
-    # along with its core identifiers. Partial records are useful for status updates.
-    
     return {
         'success': True,
         'message_type': local_name,
@@ -142,6 +181,10 @@ def _extract_flight_data(queue_label: str, root: etree._Element) -> dict:
             'dest_iata': dest[:3] if dest else None,
             'flight_status': status,
             'aircraft_type': aircraft_type[:10] if aircraft_type else None,
+            'sched_dep_utc': _clean_time(sched_dep_utc),
+            'actual_dep_utc': _clean_time(actual_dep_utc),
+            'sched_arr_utc': _clean_time(sched_arr_utc),
+            'actual_arr_utc': _clean_time(actual_arr_utc),
             'data_source': 'FAA_SWIM'
         }
     }
@@ -155,10 +198,12 @@ def is_route_ready(flight_data: dict) -> bool:
     - Must have 3-letter origin_iata
     - Must have 3-letter dest_iata
     - Must have carrier_code
+    - Carrier code must not be UNK or XXX
     """
     if not flight_data.get('source_flight_id') or not flight_data.get('callsign'):
         return False
-    if not flight_data.get('carrier_code'):
+    cc = flight_data.get('carrier_code')
+    if not cc or cc in ('UNK', 'UNKNOWN', 'XXX'):
         return False
     orig = flight_data.get('origin_iata')
     dest = flight_data.get('dest_iata')
@@ -195,7 +240,7 @@ def get_safe_diagnostics(root: etree._Element) -> dict:
     children = [etree.QName(c).localname for c in root if isinstance(c, etree._Element)]
     
     # Identify which of our target identifier tags are present (names only, no values)
-    known_id_tags = ['gufi', 'eramGufi', 'acid', 'callSign', 'aircraftId', 'flightId', 'flightIdentification']
+    known_id_tags = ['gufi', 'eramGufi', 'sfdpsGufi', 'acid', 'callSign', 'aircraftId', 'flightId', 'flightIdentification']
     found_id_tags = []
     for tag in known_id_tags:
         if root.xpath(f".//*[local-name()='{tag}']"):

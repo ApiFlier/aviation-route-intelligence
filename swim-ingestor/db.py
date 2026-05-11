@@ -197,10 +197,12 @@ def upsert_observed_flight(flight_data: dict) -> bool:
             sql = '''
                 INSERT INTO observed_flights (
                     source_flight_id, data_source, callsign, carrier_code,
-                    origin_iata, dest_iata, flight_status, aircraft_type
+                    origin_iata, dest_iata, flight_status, aircraft_type,
+                    sched_dep_utc, actual_dep_utc, sched_arr_utc, actual_arr_utc
                 ) VALUES (
                     %(source_flight_id)s, %(data_source)s, %(callsign)s, %(carrier_code)s,
-                    %(origin_iata)s, %(dest_iata)s, %(flight_status)s, %(aircraft_type)s
+                    %(origin_iata)s, %(dest_iata)s, %(flight_status)s, %(aircraft_type)s,
+                    %(sched_dep_utc)s, %(actual_dep_utc)s, %(sched_arr_utc)s, %(actual_arr_utc)s
                 ) ON DUPLICATE KEY UPDATE
                     callsign = CASE 
                         WHEN VALUES(callsign) IS NULL OR VALUES(callsign) IN ('', 'UNKN', 'UNKNOWN') THEN callsign 
@@ -218,6 +220,10 @@ def upsert_observed_flight(flight_data: dict) -> bool:
                         ELSE VALUES(flight_status)
                     END,
                     aircraft_type = COALESCE(VALUES(aircraft_type), aircraft_type),
+                    sched_dep_utc = COALESCE(VALUES(sched_dep_utc), sched_dep_utc),
+                    actual_dep_utc = COALESCE(VALUES(actual_dep_utc), actual_dep_utc),
+                    sched_arr_utc = COALESCE(VALUES(sched_arr_utc), sched_arr_utc),
+                    actual_arr_utc = COALESCE(VALUES(actual_arr_utc), actual_arr_utc),
                     last_updated_at = CURRENT_TIMESTAMP
             '''
             cur.execute(sql, flight_data)
@@ -256,7 +262,8 @@ def merge_duplicate_observations(dry_run: bool = True) -> dict:
                 # Get all rows for this GUFI
                 cur.execute("""
                     SELECT id, callsign, carrier_code, origin_iata, dest_iata, 
-                           flight_status, aircraft_type, data_source, first_seen_at, last_updated_at
+                           flight_status, aircraft_type, data_source, first_seen_at, last_updated_at,
+                           sched_dep_utc, actual_dep_utc, sched_arr_utc, actual_arr_utc
                     FROM observed_flights 
                     WHERE source_flight_id = %s
                     ORDER BY 
@@ -299,6 +306,15 @@ def merge_duplicate_observations(dry_run: bool = True) -> dict:
                     # Preserve latest last_updated
                     if other_data[9] > winner_data[9]:
                         winner_data[9] = other_data[9]
+                    # Merge times
+                    if winner_data[10] is None and other_data[10] is not None:
+                        winner_data[10] = other_data[10]
+                    if winner_data[11] is None and other_data[11] is not None:
+                        winner_data[11] = other_data[11]
+                    if winner_data[12] is None and other_data[12] is not None:
+                        winner_data[12] = other_data[12]
+                    if winner_data[13] is None and other_data[13] is not None:
+                        winner_data[13] = other_data[13]
 
                     # Delete the "other" row
                     cur.execute("DELETE FROM observed_flights WHERE id = %s", (other_data[0],))
@@ -309,10 +325,12 @@ def merge_duplicate_observations(dry_run: bool = True) -> dict:
                     UPDATE observed_flights SET
                         callsign = %s, carrier_code = %s, origin_iata = %s, dest_iata = %s,
                         flight_status = %s, aircraft_type = %s, data_source = 'FAA_SWIM',
-                        first_seen_at = %s, last_updated_at = %s
+                        first_seen_at = %s, last_updated_at = %s,
+                        sched_dep_utc = %s, actual_dep_utc = %s, sched_arr_utc = %s, actual_arr_utc = %s
                     WHERE id = %s
                 """, (winner_data[1], winner_data[2], winner_data[3], winner_data[4],
-                      winner_data[5], winner_data[6], winner_data[8], winner_data[9], winner_id))
+                      winner_data[5], winner_data[6], winner_data[8], winner_data[9],
+                      winner_data[10], winner_data[11], winner_data[12], winner_data[13], winner_id))
                 stats['rows_merged'] += 1
                 
                 if stats['rows_merged'] % 100 == 0:
