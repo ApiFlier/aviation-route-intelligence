@@ -815,13 +815,9 @@
                         }
 
                         html += `<div class="ra-compact-schedule" style="margin-top:12px; display:flex; flex-direction:column; gap:12px;">`;
-                        let hasQuietDays = false;
                         weekdays.forEach(day => {
                             const dayPatterns = patternsByDay[day];
-                            if (dayPatterns.length === 0) {
-                                hasQuietDays = true;
-                                return;
-                            }
+                            if (dayPatterns.length === 0) return;
                             
                             html += `<div class="ra-day-group">`;
                             html += `<div style="font-size:0.75rem; color:#888; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; font-weight:700;">${day}</div>`;
@@ -838,10 +834,6 @@
                             });
                             html += `</div>`;
                         });
-                        
-                        if (hasQuietDays) {
-                            html += `<div style="font-size:0.72rem; color:#555; padding-top:4px;">Other days: no recent observations in the current window.</div>`;
-                        }
                         
                         html += `</div>`;
 
