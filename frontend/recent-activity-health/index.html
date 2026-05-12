@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Health | FlightConn</title>
+    <link rel="stylesheet" href="/fontAwesome/css/all.min.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        /* ── Header ───────────────────────────────────────────────── */
+        .app-header {
+            height: 56px;
+            background: #16213e;
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            gap: 20px;
+            border-bottom: 1px solid #0f3460;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .app-logo {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #00d9ff;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .app-logo:hover { color: #00c4e6; }
+        .app-nav {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+        }
+        .app-nav a {
+            color: #888;
+            text-decoration: none;
+            font-size: 0.85rem;
+            padding: 6px 12px;
+            border-radius: 5px;
+            transition: color 0.15s, background 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .app-nav a:hover { color: #eee; background: #0f3460; }
+        .app-nav a.active { color: #00d9ff; background: rgba(0,217,255,0.08); }
+
+        /* ── Page hero ────────────────────────────────────────────── */
+        .page-hero {
+            background: linear-gradient(180deg, #16213e 0%, #1a1a2e 100%);
+            padding: 28px 24px 20px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .page-hero h1 {
+            font-size: 1.6rem;
+            font-weight: 600;
+            color: #00d9ff;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .page-hero .subtitle {
+            color: #aaa;
+            font-size: 0.9rem;
+            max-width: 680px;
+            line-height: 1.55;
+            margin-bottom: 10px;
+        }
+
+        /* ── Layout ───────────────────────────────────────────────── */
+        .page-body {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px 20px 40px;
+        }
+
+        /* ── Dashboard Grid ────────────────────────────────────────── */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .health-card {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .card-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #888;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 10px;
+        }
+        .card-title i { color: #00d9ff; }
+
+        .status-hero {
+            text-align: center;
+            padding: 10px 0;
+        }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            text-transform: uppercase;
+        }
+        .status-badge.healthy { background: rgba(0,255,136,0.1); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }
+        .status-badge.stale { background: rgba(255,152,0,0.1); color: #ff9800; border: 1px solid rgba(255,152,0,0.3); }
+        .status-badge.degraded { background: rgba(244,67,54,0.1); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .metric-row:last-child { border-bottom: none; }
+        .metric-label { font-size: 0.85rem; color: #aaa; }
+        .metric-value { font-size: 0.9rem; font-weight: 600; color: #eee; }
+        .metric-value.good { color: #00ff88; }
+        .metric-value.warn { color: #ff9800; }
+        .metric-value.bad { color: #f44336; }
+
+        /* ── Ingestion Run ────────────────────────────────────────── */
+        .ingestion-info {
+            background: rgba(0,0,0,0.2);
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+        .ingestion-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            margin-bottom: 5px;
+        }
+        .ingestion-status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .ingestion-status.completed .dot { background: #00ff88; }
+        .ingestion-status.running .dot { background: #00d9ff; animation: pulse 1.5s infinite; }
+        .ingestion-status.failed .dot { background: #f44336; }
+
+        @keyframes pulse {
+            0% { opacity: 0.4; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.1); }
+            100% { opacity: 0.4; transform: scale(0.8); }
+        }
+
+        /* ── Table List ───────────────────────────────────────────── */
+        .table-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .table-item {
+            display: grid;
+            grid-template-columns: 1fr 100px;
+            align-items: center;
+            background: rgba(0,0,0,0.15);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+        .table-name { color: #888; font-family: monospace; }
+        .table-count { text-align: right; font-weight: 700; color: #00d9ff; }
+        .table-missing { color: #555; font-style: italic; }
+
+        /* ── Alias samples ────────────────────────────────────────── */
+        .alias-samples {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .alias-tag {
+            background: #0f3460;
+            color: #00d9ff;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: monospace;
+        }
+
+        /* ── Disclaimer ───────────────────────────────────────────── */
+        .ra-disclaimer {
+            font-size: 0.75rem;
+            color: #555;
+            margin-top: 20px;
+            font-style: italic;
+            line-height: 1.4;
+            text-align: center;
+        }
+
+        /* Spinner */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { display: inline-block; animation: spin 0.8s linear infinite; }
+        .loading-box { text-align: center; padding: 60px; color: #555; }
+    </style>
+</head>
+<body>
+
+<header class="app-header">
+    <a href="/" class="app-logo">
+        <i class="fas fa-plane-departure"></i>
+        FlightConn
+    </a>
+    <nav class="app-nav">
+        <a href="/"><i class="fas fa-map-marked-alt"></i> Route Map</a>
+        <a href="/opportunities/"><i class="fas fa-chart-line"></i> Route Opportunities</a>
+        <a href="/airline-health/"><i class="fas fa-heartbeat"></i> Airline Health</a>
+        <a href="/recent-activity-health/" class="active"><i class="fas fa-microchip"></i> System Health</a>
+    </nav>
+</header>
+
+<div class="page-hero">
+    <h1><i class="fas fa-microchip"></i> System Health</h1>
+    <p class="subtitle">
+        Operational visibility into recent activity ingestion, normalization, and pattern aggregation.
+    </p>
+</div>
+
+<div class="page-body">
+
+    <div id="loading-state" class="loading-box">
+        <i class="fas fa-circle-notch spinner fa-2x"></i>
+        <p style="margin-top:10px">Loading health metrics...</p>
+    </div>
+
+    <div id="health-dashboard" style="display:none">
+        <div class="dashboard-grid">
+            
+            <!-- Overall Status -->
+            <div class="health-card">
+                <div class="card-title"><i class="fas fa-shield-alt"></i> Core Status</div>
+                <div class="status-hero" id="status-hero">
+                    <!-- Status badge injected here -->
+                </div>
+                <div class="metric-row" style="margin-top:15px">
+                    <span class="metric-label">App Health</span>
+                    <span class="metric-value good" id="app-status">Healthy</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Database</span>
+                    <span class="metric-value" id="db-status">Connected</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">SWIM Ingestion</span>
+                    <span class="metric-value" id="ingestion-freshness">---</span>
+                </div>
+            </div>
+
+            <!-- Data Freshness -->
+            <div class="health-card">
+                <div class="card-title"><i class="fas fa-clock"></i> Data Freshness</div>
+                <div class="metric-row">
+                    <span class="metric-label">Latest Observation</span>
+                    <span class="metric-value" id="latest-obs">---</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Freshness Age</span>
+                    <span class="metric-value" id="freshness-age">---</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Last Aggregation</span>
+                    <span class="metric-value" id="last-agg">---</span>
+                </div>
+                
+                <div id="ingestion-run-box" class="ingestion-info">
+                    <!-- Latest run info injected here -->
+                </div>
+            </div>
+
+            <!-- Data Quality -->
+            <div class="health-card">
+                <div class="card-title"><i class="fas fa-vial"></i> Data Quality</div>
+                <div class="metric-row">
+                    <span class="metric-label">Route-Ready Rows</span>
+                    <span class="metric-value" id="route-ready">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Commercial Candidates</span>
+                    <span class="metric-value" id="comm-candidates">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Unmatched Signals</span>
+                    <span class="metric-value" id="unmatched-signals">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Rows with Carrier</span>
+                    <span class="metric-value" id="with-carrier">0</span>
+                </div>
+            </div>
+
+            <!-- Pattern Memory -->
+            <div class="health-card">
+                <div class="card-title"><i class="fas fa-brain"></i> Pattern Memory</div>
+                <div class="metric-row">
+                    <span class="metric-label">Active Patterns</span>
+                    <span class="metric-value" id="pattern-active">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Watch Patterns</span>
+                    <span class="metric-value" id="pattern-watch">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Longest Streak</span>
+                    <span class="metric-value good" id="longest-streak">0 weeks</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Stale/Inactive</span>
+                    <span class="metric-value" id="pattern-stale">0</span>
+                </div>
+            </div>
+
+            <!-- Carrier Aliases -->
+            <div class="health-card">
+                <div class="card-title"><i class="fas fa-exchange-alt"></i> Carrier Aliases</div>
+                <div class="metric-row">
+                    <span class="metric-label">Alias Table</span>
+                    <span class="metric-value" id="alias-table">Missing</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Registered Aliases</span>
+                    <span class="metric-value" id="alias-count">0</span>
+                </div>
+                <div id="alias-samples" class="alias-samples">
+                    <!-- Samples injected here -->
+                </div>
+            </div>
+
+            <!-- Table Volume -->
+            <div class="health-card">
+                <div class="card-title"><i class="fas fa-database"></i> Data Volume</div>
+                <div class="table-list" id="table-list">
+                    <!-- Tables injected here -->
+                </div>
+            </div>
+
+        </div>
+
+        <div class="ra-disclaimer">
+            <i class="fas fa-info-circle"></i> Recent activity data is ingested from FAA SWIM/SCDS public-release feeds. 
+            It is advisory only and not for operational use. All metrics shown are aggregate indicators 
+            of system throughput and data maturity.
+        </div>
+    </div>
+
+</div>
+
+<script src="/config.js"></script>
+<script>
+    async function loadHealth() {
+        try {
+            const res = await fetch(CONFIG.API_URL + '/recent-activity/health');
+            if (!res.ok) throw new Error('Failed to fetch health metrics');
+            const data = await res.json();
+            
+            renderHealth(data);
+        } catch (err) {
+            document.getElementById('loading-state').innerHTML = 
+                `<i class="fas fa-exclamation-triangle fa-2x" style="color:#f44336"></i>` +
+                `<p style="margin-top:10px;color:#f44336">${err.message}</p>`;
+        }
+    }
+
+    function renderHealth(h) {
+        document.getElementById('loading-state').style.display = 'none';
+        document.getElementById('health-dashboard').style.display = 'block';
+
+        const s = h.status || {};
+        const freshness = s.system_freshness || {};
+        const mins = freshness.minutes_stale;
+        
+        // 1. Status Hero
+        const hero = document.getElementById('status-hero');
+        let statusLabel = 'Healthy';
+        let statusClass = 'healthy';
+        
+        if (mins > 60) {
+            statusLabel = 'Stale';
+            statusClass = 'stale';
+        }
+        if (h.app_status === 'degraded' || !h.database.connected) {
+            statusLabel = 'Degraded';
+            statusClass = 'degraded';
+        }
+
+        hero.innerHTML = `<span class="status-badge ${statusClass}">${statusLabel}</span>`;
+
+        // 2. Core Stats
+        document.getElementById('app-status').textContent = h.app_status === 'healthy' ? 'Healthy' : 'Degraded';
+        document.getElementById('app-status').className = 'metric-value ' + (h.app_status === 'healthy' ? 'good' : 'bad');
+        
+        document.getElementById('db-status').textContent = h.database.connected ? 'Connected' : 'Error';
+        document.getElementById('db-status').className = 'metric-value ' + (h.database.connected ? 'good' : 'bad');
+        
+        const freshText = mins === null ? 'No Data' : (mins <= 60 ? 'Fresh' : 'Stale');
+        document.getElementById('ingestion-freshness').textContent = freshText;
+        document.getElementById('ingestion-freshness').className = 'metric-value ' + (mins === null ? '' : (mins <= 60 ? 'good' : 'warn'));
+
+        // 3. Freshness
+        document.getElementById('latest-obs').textContent = freshness.latest_observed_update ? 
+            new Date(freshness.latest_observed_update).toLocaleString() : 'Never';
+        document.getElementById('freshness-age').textContent = mins !== null ? `${mins} minutes` : '---';
+        document.getElementById('last-agg').textContent = s.latest_aggregation_time ? 
+            new Date(s.latest_aggregation_time).toLocaleString() : 'Never';
+
+        // 4. Ingestion Run
+        const run = s.latest_ingestion_run;
+        const runBox = document.getElementById('ingestion-run-box');
+        if (run) {
+            runBox.innerHTML = `
+                <div class="ingestion-status ${run.status}">
+                    <span class="dot"></span>
+                    <span style="text-transform:uppercase;font-weight:700">${run.status}</span>
+                    <span style="color:#666">· ${run.source}</span>
+                </div>
+                <div style="font-size:0.7rem;color:#888;margin-top:5px">
+                    Started: ${new Date(run.started_at).toLocaleString()}<br>
+                    Messages: ${run.messages_received.toLocaleString()}
+                </div>
+            `;
+        } else {
+            runBox.innerHTML = '<div style="font-size:0.75rem;color:#555">No recent ingestion runs found.</div>';
+        }
+
+        // 5. Data Quality
+        const q = h.data_quality || {};
+        const obs = q.observed_flights || {};
+        document.getElementById('route-ready').textContent = (obs.route_ready || 0).toLocaleString();
+        document.getElementById('comm-candidates').textContent = (q.commercial_candidates || 0).toLocaleString();
+        document.getElementById('unmatched-signals').textContent = (q.unmatched_recent_signals || 0).toLocaleString();
+        document.getElementById('with-carrier').textContent = (obs.with_carrier || 0).toLocaleString();
+
+        // 6. Pattern Memory
+        const p = h.patterns || {};
+        const pc = p.counts || {};
+        document.getElementById('pattern-active').textContent = (pc.active || 0).toLocaleString();
+        document.getElementById('pattern-watch').textContent = (pc.watch || 0).toLocaleString();
+        document.getElementById('longest-streak').textContent = `${p.longest_streak || 0} weeks`;
+        document.getElementById('pattern-stale').textContent = ((pc.stale || 0) + (pc.inactive || 0)).toLocaleString();
+
+        // 7. Carrier Aliases
+        const ca = h.carrier_aliases || {};
+        document.getElementById('alias-table').textContent = ca.available ? 'Available' : 'Missing';
+        document.getElementById('alias-table').className = 'metric-value ' + (ca.available ? 'good' : 'warn');
+        document.getElementById('alias-count').textContent = ca.count.toLocaleString();
+        
+        const aliasSamples = document.getElementById('alias-samples');
+        if (ca.samples && ca.samples.length > 0) {
+            aliasSamples.innerHTML = ca.samples.map(s => `<span class="alias-tag">${s}</span>`).join('');
+        } else if (ca.available) {
+            aliasSamples.innerHTML = '<span style="font-size:0.75rem;color:#555">No aliases defined.</span>';
+        }
+
+        // 8. Table Volumes
+        const tableList = document.getElementById('table-list');
+        const tables = h.tables || {};
+        tableList.innerHTML = '';
+        
+        Object.keys(tables).sort().forEach(name => {
+            const info = tables[name];
+            const div = document.createElement('div');
+            div.className = 'table-item';
+            div.innerHTML = `
+                <span class="table-name">${name}</span>
+                <span class="table-count">${info.available ? info.count.toLocaleString() : '<span class="table-missing">Missing</span>'}</span>
+            `;
+            tableList.appendChild(div);
+        });
+    }
+
+    loadHealth();
+</script>
+</body>
+</html>

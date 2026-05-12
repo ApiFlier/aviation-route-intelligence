@@ -459,16 +459,16 @@ def get_recent_activity_status():
             "disclaimer": "SWIM/SCDS data is not for operational use."
         }
     }
-    
+
     try:
         status['observed_flights_count'] = db.execute_one("SELECT COUNT(*) as count FROM observed_flights")['count']
         status['recent_route_activity_count'] = db.execute_one("SELECT COUNT(*) as count FROM recent_route_activity")['count']
         status['recent_route_carrier_activity_count'] = db.execute_one("SELECT COUNT(*) as count FROM recent_route_carrier_activity")['count']
         status['tables_available'] = True
-        
+
         latest_run = db.execute_one("""
-            SELECT source, status, started_at, messages_recv 
-            FROM swim_ingestion_runs 
+            SELECT source, status, started_at, messages_recv
+            FROM swim_ingestion_runs
             ORDER BY started_at DESC LIMIT 1
         """)
         if latest_run:
@@ -478,13 +478,13 @@ def get_recent_activity_status():
                 "started_at": latest_run['started_at'].isoformat() if latest_run['started_at'] else None,
                 "messages_received": latest_run['messages_recv']
             }
-            
+
         latest_agg = db.execute_one("SELECT MAX(computed_at) as last_agg FROM recent_route_activity")
         if latest_agg:
             status['latest_aggregation_time'] = latest_agg['last_agg'].isoformat() if latest_agg['last_agg'] else None
 
         freshness = db.execute_one("""
-            SELECT 
+            SELECT
                 MAX(last_updated_at) as latest_update,
                 TIMESTAMPDIFF(MINUTE, MAX(last_updated_at), UTC_TIMESTAMP()) as mins_stale
             FROM observed_flights
@@ -492,8 +492,126 @@ def get_recent_activity_status():
         if freshness:
             status['system_freshness']['latest_observed_update'] = freshness['latest_update'].isoformat() if freshness['latest_update'] else None
             status['system_freshness']['minutes_stale'] = freshness['mins_stale']
-            
+
     except Exception:
         pass
-        
+
     return status
+
+
+def get_recent_activity_health():
+    """
+    Get comprehensive operational health metrics for recent activity data.
+    """
+    db = get_db()
+    health = {
+        "app_status": "healthy",
+        "database": {
+            "connected": False,
+            "error": None
+        },
+        "status": get_recent_activity_status(),
+        "tables": {},
+        "data_quality": {},
+        "patterns": {},
+        "carrier_aliases": {
+            "available": False,
+            "count": 0,
+            "samples": []
+        }
+    }
+
+    try:
+        db.execute_one("SELECT 1")
+        health['database']['connected'] = True
+    except Exception as e:
+        health['database']['error'] = str(e)
+        health['app_status'] = "degraded"
+        return health
+
+    # Table counts
+    tables_to_check = [
+        'observed_flights',
+        'observed_flight_enrichment',
+        'recent_route_activity',
+        'recent_route_carrier_activity',
+        'recent_carrier_weekly_rollup',
+        'recent_carrier_patterns',
+        'route_historical_recent_comparison'
+    ]
+
+    for table in tables_to_check:
+        try:
+            count = db.execute_one(f"SELECT COUNT(*) as count FROM {table}")['count']
+            health['tables'][table] = {"available": True, "count": count}
+        except Exception:
+            health['tables'][table] = {"available": False, "count": 0}
+
+    # Data quality indicators
+    try:
+        quality = db.execute_one("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN carrier_code IS NOT NULL AND carrier_code != '' THEN 1 ELSE 0 END) as with_carrier,
+                SUM(CASE WHEN origin_iata IS NOT NULL AND dest_iata IS NOT NULL THEN 1 ELSE 0 END) as with_route,
+                SUM(CASE WHEN carrier_code IS NOT NULL AND origin_iata IS NOT NULL AND dest_iata IS NOT NULL THEN 1 ELSE 0 END) as route_ready
+            FROM observed_flights
+        """)
+        if quality:
+            health['data_quality']['observed_flights'] = {
+                "total": quality['total'],
+                "with_carrier": quality['with_carrier'],
+                "with_route": quality['with_route'],
+                "route_ready": quality['route_ready']
+            }
+
+        # Commercial candidates and unmatched signals
+        comm_cand = db.execute_one("SELECT COUNT(*) as count FROM recent_route_carrier_activity WHERE commercial_confidence IN ('medium', 'high')")
+        health['data_quality']['commercial_candidates'] = comm_cand['count'] if comm_cand else 0
+
+        # Unmatched signals: in_recent_activity=1 but in_historical_data=0 in comparison table
+        unmatched = db.execute_one("SELECT COUNT(*) as count FROM route_historical_recent_comparison WHERE in_recent_activity=1 AND in_historical_data=0")
+        health['data_quality']['unmatched_recent_signals'] = unmatched['count'] if unmatched else 0
+
+    except Exception as e:
+        health['data_quality']['error'] = str(e)
+
+    # Pattern memory status
+    try:
+        pattern_stats = db.execute("""
+            SELECT status, COUNT(*) as count 
+            FROM recent_carrier_patterns 
+            GROUP BY status
+        """)
+        health['patterns']['counts'] = {row['status']: row['count'] for row in pattern_stats}
+
+        longest_streak = db.execute_one("SELECT MAX(consecutive_weeks_seen) as max_streak FROM recent_carrier_patterns")
+        health['patterns']['longest_streak'] = longest_streak['max_streak'] if longest_streak else 0
+
+    except Exception:
+        pass
+
+    # Carrier alias status
+    try:
+        # Check if table exists first to avoid noisy error logs
+        table_exists = db.execute_one("""
+            SELECT COUNT(*) as count 
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE() 
+            AND table_name = 'carrier_aliases'
+        """)
+
+        if table_exists and table_exists['count'] > 0:
+            alias_count = db.execute_one("SELECT COUNT(*) as count FROM carrier_aliases")['count']
+            health['carrier_aliases']['available'] = True
+            health['carrier_aliases']['count'] = alias_count
+
+            samples = db.execute("SELECT observed_code, canonical_code FROM carrier_aliases LIMIT 5")
+            health['carrier_aliases']['samples'] = [f"{s['observed_code']} → {s['canonical_code']}" for s in samples]
+        else:
+            health['carrier_aliases']['available'] = False
+    except Exception:
+        health['carrier_aliases']['available'] = False
+
+    return health
+

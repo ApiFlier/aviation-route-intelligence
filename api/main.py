@@ -10,7 +10,7 @@ from flask_cors import CORS
 
 from Modules import airports_bp, routes_bp, carriers_bp, fares_bp, schedules_bp, opportunities_bp
 from Classes import get_db
-from Services.RecentActivity import get_recent_activity_status
+from Services.RecentActivity import get_recent_activity_status, get_recent_activity_health
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 app.secret_key = os.getenv('FLASK_SECRET') or os.urandom(32)
@@ -47,6 +47,15 @@ def serve_opportunities():
     return send_from_directory(os.path.join(app.static_folder, 'opportunities'), 'index.html')
 
 
+@app.route('/recent-activity-health/')
+@app.route('/recent-activity-health')
+@app.route('/status/')
+@app.route('/status')
+def serve_recent_activity_health():
+    """Serve the recent activity health page."""
+    return send_from_directory(os.path.join(app.static_folder, 'recent-activity-health'), 'index.html')
+
+
 @app.route('/api')
 def api_index():
     """API info endpoint."""
@@ -67,14 +76,14 @@ def api_index():
 def get_stats():
     """Get overall statistics."""
     db = get_db()
-    
+
     stats = db.execute("SELECT stat_key, stat_value FROM stats")
     stats_dict = {s['stat_key']: s['stat_value'] for s in stats}
-    
+
     # Get additional counts
     airport_count = db.execute_one("SELECT COUNT(*) as count FROM airports WHERE route_count > 0")
     carrier_count = db.execute_one("SELECT COUNT(DISTINCT carrier_code) as count FROM route_carriers")
-    
+
     return jsonify({
         'routes': stats_dict.get('total_routes', 0),
         'airports': airport_count['count'] if airport_count else 0,
@@ -89,6 +98,11 @@ def recent_activity_status():
     """Get system-wide status of SWIM ingestion and aggregation."""
     return jsonify(get_recent_activity_status())
 
+
+@app.route('/api/recent-activity/health')
+def recent_activity_health():
+    """Get comprehensive operational health metrics for recent activity."""
+    return jsonify(get_recent_activity_health())
 
 @app.route('/health')
 def health():

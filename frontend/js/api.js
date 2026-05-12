@@ -62,6 +62,10 @@ const API = (() => {
             return _get('/recent-activity/status');
         },
 
+        getRecentActivityHealth() {
+            return _get('/recent-activity/health');
+        },
+
         // ── Aircraft ──────────────────────────────────────────────────
         getAircraft({ limit = 500 } = {}) {
             return _get(`/aircraft?limit=${limit}`);
