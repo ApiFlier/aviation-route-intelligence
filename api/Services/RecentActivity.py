@@ -213,6 +213,10 @@ def get_recent_activity_status():
         "recent_route_activity_count": 0,
         "recent_route_carrier_activity_count": 0,
         "latest_ingestion_run": None,
+        "system_freshness": {
+            "latest_observed_update": None,
+            "minutes_stale": None
+        },
         "metadata": {
             "source": "FAA SWIM/SCDS public-release data",
             "operational_use": False,
@@ -235,13 +239,23 @@ def get_recent_activity_status():
             status['latest_ingestion_run'] = {
                 "source": latest_run['source'],
                 "status": latest_run['status'],
-                "started_at": latest_run['started_at'].isoformat(),
+                "started_at": latest_run['started_at'].isoformat() if latest_run['started_at'] else None,
                 "messages_received": latest_run['messages_recv']
             }
             
         latest_agg = db.execute_one("SELECT MAX(computed_at) as last_agg FROM recent_route_activity")
         if latest_agg:
             status['latest_aggregation_time'] = latest_agg['last_agg'].isoformat() if latest_agg['last_agg'] else None
+
+        freshness = db.execute_one("""
+            SELECT 
+                MAX(last_updated_at) as latest_update,
+                TIMESTAMPDIFF(MINUTE, MAX(last_updated_at), UTC_TIMESTAMP()) as mins_stale
+            FROM observed_flights
+        """)
+        if freshness:
+            status['system_freshness']['latest_observed_update'] = freshness['latest_update'].isoformat() if freshness['latest_update'] else None
+            status['system_freshness']['minutes_stale'] = freshness['mins_stale']
             
     except Exception:
         pass

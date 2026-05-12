@@ -33,8 +33,10 @@ class ProbeResult:
         self.connected: bool = False
         self.queues_attempted: list[str] = []
         self.messages_received: int = 0
+        self.last_message_at: datetime = None
         self.messages_metadata: list[dict] = []
         self.counts_by_label: dict[str, int] = {}
+        self.last_message_by_label: dict[str, datetime] = {}
         self.errors: list[str] = []
         self.error_summary: str = ''
         
@@ -79,94 +81,112 @@ sni = {ems2_host}
     return conf_path
 
 class _IngestMessageHandler(MessageHandler):
-    def __init__(self, label: str, listener, result: ProbeResult, max_messages: int = None):
+    def __init__(self, label: str, listener, result: ProbeResult, receiver=None, max_messages: int = None):
         self._label = label
         self._listener = listener
         self._result = result
+        self._receiver = receiver
         self._max = max_messages
 
     def on_message(self, message: InboundMessage):
-        payload = message.get_payload_as_bytes()
-        payload_bytes = len(payload) if payload else 0
-        
-        parsed_res = parse_swim_message(self._label, payload)
-        
-        skip_reason = parsed_res.get('skip_reason')
-        if parsed_res['success'] and not skip_reason and parsed_res.get('records'):
-            # Grab the first failure reason to help debug
-            failures = [r.get('skip_reason') for r in parsed_res['records'] if not r.get('success')]
-            if failures:
-                skip_reason = failures[0]
+        try:
+            now_utc = datetime.now(timezone.utc)
+            payload = message.get_payload_as_bytes()
+            payload_bytes = len(payload) if payload else 0
+            
+            parsed_res = parse_swim_message(self._label, payload)
+            
+            skip_reason = parsed_res.get('skip_reason')
+            if parsed_res['success'] and not skip_reason and parsed_res.get('records'):
+                # Grab the first failure reason to help debug
+                failures = [r.get('skip_reason') for r in parsed_res['records'] if not r.get('success')]
+                if failures:
+                    skip_reason = failures[0]
+                    
+            meta = {
+                'queue_label': self._label,
+                'received_at': now_utc.isoformat(),
+                'payload_bytes': payload_bytes,
+                'content_type': 'solace',
+                'msg_type': parsed_res.get('message_type', 'unknown'),
+                'parsed': parsed_res['success'],
+                'skip_reason': skip_reason,
+                'records_extracted': len([r for r in parsed_res.get('records', []) if r.get('success')]),
+                'collections_unpacked': parsed_res.get('stats', {}).get('message_collections', 0),
+                'candidates_found': parsed_res.get('stats', {}).get('candidates', 0),
+            }
+            
+            with self._listener._lock:
+                self._result.messages_received += 1
+                self._result.last_message_at = now_utc
+                self._result.counts_by_label[self._label] = self._result.counts_by_label.get(self._label, 0) + 1
+                self._result.last_message_by_label[self._label] = now_utc
                 
-        meta = {
-            'queue_label': self._label,
-            'received_at': datetime.now(timezone.utc).isoformat(),
-            'payload_bytes': payload_bytes,
-            'content_type': 'solace',
-            'msg_type': parsed_res.get('message_type', 'unknown'),
-            'parsed': parsed_res['success'],
-            'skip_reason': skip_reason,
-            'records_extracted': len([r for r in parsed_res.get('records', []) if r.get('success')]),
-            'collections_unpacked': parsed_res.get('stats', {}).get('message_collections', 0),
-            'candidates_found': parsed_res.get('stats', {}).get('candidates', 0),
-        }
-        
-        with self._listener._lock:
-            self._result.messages_received += 1
-            self._result.counts_by_label[self._label] = self._result.counts_by_label.get(self._label, 0) + 1
-            
-            # Safe profiling aggregation
-            msg_type = parsed_res.get('message_type', 'unknown')
-            self._result.message_types[msg_type] = self._result.message_types.get(msg_type, 0) + 1
-            
-            diag = parsed_res.get('diagnostics', {})
-            for tag in diag.get('child_tags', []):
-                self._result.tags_observed[tag] = self._result.tags_observed.get(tag, 0) + 1
-            for id_tag in diag.get('found_id_tags', []):
-                self._result.ids_observed[id_tag] = self._result.ids_observed.get(id_tag, 0) + 1
+                # Safe profiling aggregation
+                msg_type = parsed_res.get('message_type', 'unknown')
+                self._result.message_types[msg_type] = self._result.message_types.get(msg_type, 0) + 1
+                
+                diag = parsed_res.get('diagnostics', {})
+                for tag in diag.get('child_tags', []):
+                    self._result.tags_observed[tag] = self._result.tags_observed.get(tag, 0) + 1
+                for id_tag in diag.get('found_id_tags', []):
+                    self._result.ids_observed[id_tag] = self._result.ids_observed.get(id_tag, 0) + 1
 
-            if parsed_res['success']:
-                # The payload parsed successfully, process the extracted records
-                for rec in parsed_res['records']:
-                    if rec['success']:
-                        self._result.parsed_successfully += 1
-                        flight_data = rec['flight_data']
-                        
-                        if is_route_ready(flight_data):
-                            self._result.route_ready_count += 1
-                        else:
-                            self._result.partial_count += 1
+                if parsed_res['success']:
+                    # The payload parsed successfully, process the extracted records
+                    for rec in parsed_res['records']:
+                        if rec['success']:
+                            self._result.parsed_successfully += 1
+                            flight_data = rec['flight_data']
                             
-                        if upsert_observed_flight(flight_data):
-                            self._result.inserted_or_updated += 1
-                    else:
-                        reason = rec.get('skip_reason', '')
-                        # Clean up reason for summary: remove "Tags: [...]"
-                        clean_reason = reason.split('. Tags:')[0] if '. Tags:' in reason else reason
-                        self._result.skip_reason_counts[clean_reason] = self._result.skip_reason_counts.get(clean_reason, 0) + 1
-
-                        if 'Missing origin' in reason or 'Missing GUFI' in reason or 'Missing ACID' in reason or 'non-IATA' in reason:
-                            self._result.skipped_missing_route += 1
+                            if is_route_ready(flight_data):
+                                self._result.route_ready_count += 1
+                            else:
+                                self._result.partial_count += 1
+                                
+                            if upsert_observed_flight(flight_data):
+                                self._result.inserted_or_updated += 1
                         else:
-                            self._result.skipped_unknown_type += 1
-            else:
-                # The whole payload failed to parse
-                reason = parsed_res.get('skip_reason', '')
-                clean_reason = reason.split('. Tags:')[0] if '. Tags:' in reason else reason
-                self._result.skip_reason_counts[clean_reason] = self._result.skip_reason_counts.get(clean_reason, 0) + 1
+                            reason = rec.get('skip_reason', '')
+                            # Clean up reason for summary: remove "Tags: [...]"
+                            clean_reason = reason.split('. Tags:')[0] if '. Tags:' in reason else reason
+                            self._result.skip_reason_counts[clean_reason] = self._result.skip_reason_counts.get(clean_reason, 0) + 1
 
-                if 'Parse Error' in reason or 'Syntax Error' in reason:
-                    self._result.parse_errors += 1
+                            if 'Missing origin' in reason or 'Missing GUFI' in reason or 'Missing ACID' in reason or 'non-IATA' in reason:
+                                self._result.skipped_missing_route += 1
+                            else:
+                                self._result.skipped_unknown_type += 1
                 else:
-                    self._result.skipped_unknown_type += 1
+                    # The whole payload failed to parse
+                    reason = parsed_res.get('skip_reason', '')
+                    clean_reason = reason.split('. Tags:')[0] if '. Tags:' in reason else reason
+                    self._result.skip_reason_counts[clean_reason] = self._result.skip_reason_counts.get(clean_reason, 0) + 1
 
-            self._listener.messages.append(meta)
-            # Keep only last 100 metadata items to avoid memory bloat in continuous mode
-            if len(self._listener.messages) > 100:
-                self._listener.messages.pop(0)
+                    if 'Parse Error' in reason or 'Syntax Error' in reason:
+                        self._result.parse_errors += 1
+                    else:
+                        self._result.skipped_unknown_type += 1
 
-            if self._max and self._result.messages_received >= self._max:
-                self._listener.done.set()
+                self._listener.messages.append(meta)
+                # Keep only last 100 metadata items to avoid memory bloat in continuous mode
+                if len(self._listener.messages) > 100:
+                    self._listener.messages.pop(0)
+
+                if self._max and self._result.messages_received >= self._max:
+                    self._listener.done.set()
+
+            # Acknowledge the message if receiver is present (using CLIENT_ACKNOWLEDGE)
+            # This happens AFTER successful processing/safe parsing skip.
+            if self._receiver:
+                try:
+                    self._receiver.ack(message)
+                except Exception as e:
+                    log.error("Failed to acknowledge message from %s: %s", self._label, e)
+                    
+        except Exception as e:
+            log.error("Unexpected processing error in on_message (%s): %s", self._label, e)
+            # We do NOT ack here, allowing potential redelivery on session restart if unhandled.
+
 
 class _ProbeMessageHandler(_IngestMessageHandler):
     # Backward compatibility for run_probe
@@ -232,9 +252,11 @@ def run_probe(probe_seconds: int = 30, max_messages: int = 5) -> ProbeResult:
             messaging_services.append(messaging_service)
             
             queue = Queue.durable_exclusive_queue(q_val)
-            receiver = messaging_service.create_persistent_message_receiver_builder().build(queue)
+            receiver = messaging_service.create_persistent_message_receiver_builder()\
+                .with_message_client_acknowledgement()\
+                .build(queue)
             receiver.start()
-            receiver.receive_async(_IngestMessageHandler(label, listener, result, max_messages))
+            receiver.receive_async(_IngestMessageHandler(label, listener, result, receiver=receiver, max_messages=max_messages))
             receivers.append(receiver)
             log.info(f"Connected and subscribed to {label} via {vpn_name} on port {local_port}")
             
@@ -316,9 +338,11 @@ def start_continuous_ingestion(stop_event: threading.Event) -> tuple:
             messaging_services.append(messaging_service)
             
             queue = Queue.durable_exclusive_queue(q_val)
-            receiver = messaging_service.create_persistent_message_receiver_builder().build(queue)
+            receiver = messaging_service.create_persistent_message_receiver_builder()\
+                .with_message_client_acknowledgement()\
+                .build(queue)
             receiver.start()
-            receiver.receive_async(_IngestMessageHandler(label, listener, result))
+            receiver.receive_async(_IngestMessageHandler(label, listener, result, receiver=receiver))
             receivers.append(receiver)
             log.info(f"Continuous: subscribed to {label} via {vpn_name}")
             

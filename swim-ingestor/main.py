@@ -53,6 +53,7 @@ import time
 import signal
 import threading
 import argparse
+from datetime import datetime, timezone
 
 _QUEUE_VARS = ('QUEUE_SFDPS', 'QUEUE_STDDS', 'QUEUE_TFMS')
 
@@ -324,6 +325,10 @@ def _run_continuous(log: logging.Logger) -> None:
     last_cleanup_time = time.monotonic()
     last_summary_time = time.monotonic()
     
+    last_total_recv = 0
+    stall_count = 0
+    STALL_THRESHOLD_MINUTES = int(_get('SWIM_STALL_THRESHOLD_MINUTES', '10'))
+
     verbose = _get('SWIM_VERBOSE_MESSAGES', 'false').lower() == 'true'
     sample_limit = int(_get('SWIM_MESSAGE_LOG_SAMPLE_LIMIT', '5'))
     
@@ -334,13 +339,27 @@ def _run_continuous(log: logging.Logger) -> None:
             # Summary and DB update schedule
             if now - last_summary_time >= summary_interval:
                 with listener._lock:
+                    current_recv = result.messages_received
                     counts = {
-                        'messages_recv':   result.messages_received,
+                        'messages_recv':   current_recv,
                         'messages_ok':     result.parsed_successfully,
                         'messages_err':    result.parse_errors,
                         'flights_new':     result.inserted_or_updated,
                         'flights_updated': 0,
                     }
+                    
+                    # Stall detection
+                    if current_recv == last_total_recv:
+                        stall_count += 1
+                        if stall_count >= STALL_THRESHOLD_MINUTES:
+                            log.warning('Stall detected: No messages received in the last %d minutes.', 
+                                        stall_count * summary_interval // 60)
+                            # Could attempt reconnect here, but for now just warn
+                    else:
+                        stall_count = 0
+                    
+                    last_total_recv = current_recv
+
                     # Detailed summary
                     log.info('Status: recv=%d parsed=%d route_ready=%d partial=%d inserted=%d errors=%d',
                              result.messages_received, result.parsed_successfully,
@@ -348,6 +367,14 @@ def _run_continuous(log: logging.Logger) -> None:
                              result.inserted_or_updated, result.parse_errors)
                     
                     log.info('  queues: %s', ', '.join([f"{k}: {v}" for k, v in result.counts_by_label.items()]))
+                    
+                    if result.last_message_at:
+                        log.info('  last message received: %s (%ds ago)', 
+                                 result.last_message_at.strftime('%Y-%m-%d %H:%M:%S'),
+                                 int((datetime.now(timezone.utc) - result.last_message_at).total_seconds()))
+                    else:
+                        log.info('  last message received: never')
+
                     log.info('  message types: %s', ', '.join([f"{k}: {v}" for k, v in sorted(result.message_types.items(), key=lambda x: x[1], reverse=True)[:10]]))
                     log.info('  identifier tags observed: %s', ', '.join([f"{k}: {v}" for k, v in sorted(result.ids_observed.items(), key=lambda x: x[1], reverse=True)]))
 

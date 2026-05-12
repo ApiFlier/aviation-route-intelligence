@@ -113,15 +113,19 @@ echo "Rows with route_of_flight:   $has_route"
 echo "Rows with route_amended=1:   $has_amended"
 echo ""
 
-echo "--- Timeline ---"
+echo "--- Timeline & Freshness ---"
 earliest_seen=$(run_query "SELECT MIN(first_seen_at) FROM observed_flights;")
 latest_updated=$(run_query "SELECT MAX(last_updated_at) FROM observed_flights;")
+mins_since_update=$(run_query "SELECT TIMESTAMPDIFF(MINUTE, MAX(last_updated_at), UTC_TIMESTAMP()) FROM observed_flights;")
 
+# Check if earliest_seen is empty or NULL string
 if [[ -z "$earliest_seen" || "$earliest_seen" == "NULL" ]]; then earliest_seen="N/A"; fi
 if [[ -z "$latest_updated" || "$latest_updated" == "NULL" ]]; then latest_updated="N/A"; fi
+if [[ -z "$mins_since_update" || "$mins_since_update" == "NULL" ]]; then mins_since_update="N/A"; fi
 
 echo "Earliest first_seen_at:   $earliest_seen"
 echo "Latest last_updated_at:   $latest_updated"
+echo "Mins since latest update: $mins_since_update"
 echo ""
 
 echo "--- Duplicate Trend / Upsert Health ---"
