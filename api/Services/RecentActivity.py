@@ -349,12 +349,14 @@ def get_route_recent_activity(origin, destination):
 def get_airport_recent_activity(iata):
     """
     Fetch a summary of recent destination activity for an airport.
+    Distinguishes between historical routes and possible new signals.
+    Applies strict filtering to exclude noise (waypoints, GA/private traffic).
     """
     db = get_db()
     try:
         db.execute_one("SELECT 1 FROM recent_route_activity LIMIT 1")
     except Exception:
-        return None
+        return {"available": False}
 
     summary = db.execute_one("""
         SELECT 
@@ -366,21 +368,101 @@ def get_airport_recent_activity(iata):
     """, (iata,))
 
     if not summary or summary['dest_count'] == 0:
-        return None
+        return {"available": False}
 
-    top_dests = db.execute("""
-        SELECT dest_iata, observation_count, activity_classification
-        FROM recent_route_activity
-        WHERE origin_iata = %s
-        ORDER BY observation_count DESC
-        LIMIT 5
-    """, (iata,))
+    # Fetch all recent destinations from this origin, joined with airports to ensure they are real airports
+    all_recent = db.execute("""
+        SELECT 
+            rra.dest_iata, 
+            rra.observation_count, 
+            rra.coverage_days,
+            rra.observed_carriers, 
+            rra.last_observed_at,
+            a.name as dest_name,
+            a.city as dest_city,
+            (SELECT 1 FROM routes r WHERE r.origin = %s AND r.dest = rra.dest_iata LIMIT 1) as is_historical
+        FROM recent_route_activity rra
+        JOIN airports a ON rra.dest_iata = a.iata
+        WHERE rra.origin_iata = %s
+        ORDER BY rra.observation_count DESC, rra.last_observed_at DESC
+    """, (iata, iata))
+
+    import re
+    alias_map = get_alias_map(db)
+    
+    # Noise/GA/Private filters
+    EXCLUDED_CARRIERS = {'N', 'UNK', 'UNKN', 'UNKNOWN', 'XXX', 'EJA', 'LXJ', 'NFA', 'TRP', 'FTO', 'NKC', 'NTH', 'NPJ', 'NTM', 'NWR', 'ND', 'NKA'}
+    TAIL_NUMBER_PATTERN = re.compile(r'^N\d+[A-Z]*$')
+
+    historical_signals = []
+    new_signals = []
+    debug = {
+        "excluded_count": 0,
+        "reasons": []
+    }
+
+    # Also check for destinations in recent_route_activity that ARE NOT in airports table (waypoints)
+    total_recent_rows = db.execute_one("SELECT COUNT(*) as count FROM recent_route_activity WHERE origin_iata = %s", (iata,))['count']
+    debug["excluded_count"] += (total_recent_rows - len(all_recent))
+    if total_recent_rows > len(all_recent):
+        debug["reasons"].append("unknown destination/waypoint")
+
+    for row in all_recent:
+        raw_carriers = _parse_json_list(row['observed_carriers'])
+        resolved_carriers = []
+        seen = set()
+
+        for c in raw_carriers:
+            code = c.strip().upper() if c else ""
+            if not code or code in EXCLUDED_CARRIERS or TAIL_NUMBER_PATTERN.match(code):
+                continue
+            
+            # Resolve alias
+            canonical_code = code
+            if code in alias_map:
+                canonical_code = alias_map[code][0]
+            
+            if canonical_code not in seen:
+                resolved_carriers.append(canonical_code)
+                seen.add(canonical_code)
+
+        if not resolved_carriers:
+            debug["excluded_count"] += 1
+            debug["reasons"].append(f"non-commercial carriers for {row['dest_iata']}")
+            continue
+
+        dest_data = {
+            "dest": row['dest_iata'],
+            "dest_name": row['dest_name'],
+            "dest_city": row['dest_city'],
+            "observation_count": row['observation_count'],
+            "coverage_days": row['coverage_days'],
+            "last_observed_at": row['last_observed_at'].isoformat() + " UTC" if row['last_observed_at'] else None,
+            "observed_carriers": resolved_carriers
+        }
+
+        if row['is_historical']:
+            if len(historical_signals) < 5:
+                historical_signals.append(dest_data)
+        else:
+            # Stricter threshold for non-historical signals
+            if row['observation_count'] >= 2 or row['coverage_days'] >= 2:
+                if len(new_signals) < 5:
+                    new_signals.append(dest_data)
+            else:
+                debug["excluded_count"] += 1
+                debug["reasons"].append(f"below_display_threshold for {row['dest_iata']}")
 
     return {
+        "available": True,
+        "origin": iata,
         "recent_destination_count": summary['dest_count'],
         "total_observations": int(summary['total_obs']),
-        "last_observed_at": summary['last_seen'].isoformat() if summary['last_seen'] else None,
-        "top_recent_destinations": top_dests
+        "last_observed_at": summary['last_seen'].isoformat() + " UTC" if summary['last_seen'] else None,
+        "recently_observed_historical_destinations": historical_signals,
+        "possible_recent_destination_signals": new_signals,
+        "debug": debug,
+        "notes": ["Recent activity is advisory only and derived from public SWIM/SCDS observations."]
     }
 
 def get_opportunity_recent_activity(origin, destination):
@@ -572,6 +654,35 @@ def get_recent_activity_health():
         # Unmatched signals: in_recent_activity=1 but in_historical_data=0 in comparison table
         unmatched = db.execute_one("SELECT COUNT(*) as count FROM route_historical_recent_comparison WHERE in_recent_activity=1 AND in_historical_data=0")
         health['data_quality']['unmatched_recent_signals'] = unmatched['count'] if unmatched else 0
+
+        # Noisy signal metrics for operational visibility
+        noisy_dests = db.execute_one("""
+            SELECT COUNT(*) as count 
+            FROM recent_route_activity rra
+            LEFT JOIN airports a ON rra.dest_iata = a.iata
+            WHERE a.iata IS NULL
+        """)
+        health['data_quality']['noisy_destinations'] = noisy_dests['count'] if noisy_dests else 0
+
+        noisy_carriers = db.execute_one("""
+            SELECT COUNT(*) as count 
+            FROM recent_route_carrier_activity 
+            WHERE carrier_code IN ('N', 'UNK', 'UNKN', 'UNKNOWN', 'XXX', 'EJA', 'NFA', 'TRP', 'FTO', 'NKC', 'NTH', 'NPJ', 'NTM', 'NWR', 'ND', 'NKA')
+            OR carrier_code REGEXP '^N[0-9]+'
+        """)
+        health['data_quality']['noisy_carrier_signals'] = noisy_carriers['count'] if noisy_carriers else 0
+
+        # Weak signals suppressed from airport cards
+        weak_signals = db.execute_one("""
+            SELECT COUNT(*) as count
+            FROM recent_route_activity rra
+            JOIN airports a ON rra.dest_iata = a.iata
+            LEFT JOIN routes r ON rra.origin_iata = r.origin AND rra.dest_iata = r.dest
+            WHERE r.id IS NULL
+            AND rra.observation_count < 2
+            AND rra.coverage_days < 2
+        """)
+        health['data_quality']['suppressed_weak_signals'] = weak_signals['count'] if weak_signals else 0
 
     except Exception as e:
         health['data_quality']['error'] = str(e)

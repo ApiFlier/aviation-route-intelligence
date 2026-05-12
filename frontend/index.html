@@ -495,26 +495,64 @@
             return html;
         }
         function getRecentActivitySummary(ras) {
-            if (!ras) return '';
-            
+            if (!ras || !ras.available) return '';
+
             let html = `<div class="ra-section">`;
             html += `<div class="ra-header">`;
             html += `<div class="ra-title"><i class="fas fa-history"></i> Recent Airport Activity</div>`;
             html += `</div>`;
-            
+
             html += `<div class="ra-stats">`;
             html += `<div class="ra-stat-box"><span class="ra-stat-value">${ras.recent_destination_count}</span><span class="ra-stat-label">Recent Destinations</span></div>`;
-            html += `<div class="ra-stat-box"><span class="ra-stat-value">${ras.total_observations}</span><span class="ra-stat-label">Total Obs.</span></div>`;
+            html += `<div class="ra-stat-box"><span class="ra-stat-value">${formatNum(ras.total_observations)}</span><span class="ra-stat-label">Total Obs.</span></div>`;
             html += `</div>`;
-            
-            if (ras.top_recent_destinations && ras.top_recent_destinations.length > 0) {
-                html += `<div class="ra-note"><i class="fas fa-star"></i> Top Recent: ${ras.top_recent_destinations.map(d => d.dest_iata).join(', ')}</div>`;
+
+            // Recently Observed Historical Destinations
+            if (ras.recently_observed_historical_destinations && ras.recently_observed_historical_destinations.length > 0) {
+                html += `<div class="ra-note" style="border-top: 1px solid #0f3460; padding-top: 8px; margin-top: 10px;">`;
+                html += `<div style="font-size: 0.65rem; color: #888; text-transform: uppercase; margin-bottom: 5px; font-weight: 700;">Recently observed historical routes</div>`;
+                html += `<div style="display: flex; flex-wrap: wrap; gap: 4px;">`;
+                ras.recently_observed_historical_destinations.forEach(d => {
+                    html += `<span class="aircraft-tag" style="background: rgba(0, 217, 255, 0.05); color: #00d9ff; border: 1px solid rgba(0, 217, 255, 0.2);" title="${d.observation_count} observations">${d.dest}</span>`;
+                });
+                html += `</div>`;
+                if (ras.recently_observed_historical_destinations.length >= 5) {
+                    html += `<div style="font-size: 0.6rem; color: #555; margin-top: 4px;">Showing top 5 recent signals.</div>`;
+                }
+                html += `</div>`;
             }
-            
+
+            // Possible Recent Destination Signals
+            if (ras.possible_recent_destination_signals && ras.possible_recent_destination_signals.length > 0) {
+                html += `<div class="ra-note" style="border-top: 1px solid #0f3460; padding-top: 8px; margin-top: 10px;">`;
+                html += `<div style="font-size: 0.65rem; color: #ff9800; text-transform: uppercase; margin-bottom: 8px; font-weight: 700;"><i class="fas fa-satellite-dish"></i> Possible Recent Destination Signals</div>`;
+
+                ras.possible_recent_destination_signals.forEach(d => {
+                    const carriers = d.observed_carriers && d.observed_carriers.length > 0 
+                        ? ` · carriers: ${d.observed_carriers.join(', ')}` 
+                        : '';
+                    const destLocation = d.dest_city ? ` — ${d.dest_city}` : '';
+                    
+                    html += `<div style="margin-bottom: 10px;">`;
+                    html += `<div style="font-weight: 700; color: #eee; font-size: 0.9rem;">${d.dest}${destLocation}</div>`;
+                    if (d.dest_name) {
+                        html += `<div style="font-size: 0.72rem; color: #888; margin-top: -2px; margin-bottom: 2px;">${d.dest_name}</div>`;
+                    }
+                    html += `<div style="font-size: 0.72rem; color: #aaa;">${d.observation_count} observations${carriers}</div>`;
+                    html += `<div style="font-size: 0.65rem; color: #555; margin-top: 2px;">Recently observed, but not found in the historical destination list for this airport.</div>`;
+                    html += `</div>`;
+                });
+
+                if (ras.possible_recent_destination_signals.length >= 5) {
+                    html += `<div style="font-size: 0.6rem; color: #555; margin-top: 4px;">Showing top 5 recent signals.</div>`;
+                }
+                html += `</div>`;
+            }
+
+            html += `<div class="ra-disclaimer" style="margin-top: 12px; border-top: 1px solid #0f3460; padding-top: 8px;">Recent activity is advisory only and derived from public SWIM/SCDS observations.</div>`;
             html += `</div>`;
             return html;
         }
-
         async function selectAirport(iata) {
             try {
                 const [airportData, routesData] = await Promise.all([

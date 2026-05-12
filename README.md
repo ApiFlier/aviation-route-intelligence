@@ -30,7 +30,7 @@ chmod +x setup.sh
 - Finds an available host port automatically (starting at 8082) and saves it to `.env`
 - Seeds the database from `api/Data/db_backup.sql.gz` on first run
 - Verifies all key tables and runs a live health check
-- **Prints the local URL** when the app is ready
+- **Prints all local URLs** (Main app, Career, API, Health) when the app is ready
 
 No external API keys or network access required at runtime. The optional FAA SWIM sidecar is disabled by default.
 
@@ -38,13 +38,15 @@ No external API keys or network access required at runtime. The optional FAA SWI
 
 ## What FlightConn Does
 
-FlightConn is a route and airline intelligence tool for exploring airline routes, fares, service patterns, carrier presence, and airline health using public aviation datasets. It ships as three integrated views:
+FlightConn is a route and airline intelligence tool for exploring airline routes, fares, service patterns, carrier presence, and airline health using public aviation datasets. It ships as four integrated views:
 
 **Route Intelligence Map** (`/`) — An interactive map of the US aviation network. Search any airport to see its routes, carriers, passenger volumes, freight data, quarterly fare trends, and per-carrier on-time performance. Drill into a specific carrier on a route for delay cause breakdowns, aircraft types, and typical flight schedule tiles.
 
 **Route Opportunity Finder** (`/opportunities/`) — A ranked, filterable view of existing routes scored on public-data signals: passenger demand, historical fare levels, competition, seat utilization, reliability, and carrier context. Useful for quickly surfacing routes that may deserve deeper review. Scores are directional indicators, not profitability estimates.
 
 **Airline Health** (`/airline-health/`) — Carrier-level context using public financial, fleet, network, employee, and operating indicators. Helps users compare airline stability across major US carriers. It does not predict job security, route profitability, or future airline performance. Also reachable at `/career/`.
+
+**System Health Dashboard** (`/recent-activity-health/`) — Operational visibility into the optional recent activity pipeline. Shows ingestion status, data freshness, quality indicators, and carrier alias resolution status. Also reachable at `/status/`.
 
 ---
 
@@ -239,9 +241,60 @@ For a detailed breakdown of the fields extracted from FAA SWIM and their target 
 
 An optional sidecar (`flightconn-swim-ingestor`) can ingest recent flight activity from the FAA System Wide Information Management (SWIM) program. `setup.sh` auto-detects whether SWIM is ready — no flags to set.
 
-**Current status: FAA SWIM recent route activity pipeline implemented.** When FAA credentials and queues are configured, the optional sidecar can connect to FAA SWIM through Solace PubSub+, normalize recent flight activity, aggregate route-level summaries, and expose recent activity context through the backend API and UI. The core app still runs normally without SWIM, and raw message payloads are not stored or displayed.
+### Recent Activity Pipeline
 
-FlightConn uses SWIM data for recent route activity context and route-pattern intelligence. It does not display live aircraft positions or replace Aviation Radar.
+When FAA credentials and queues are configured, the optional sidecar connects to FAA SWIM through Solace PubSub+, normalizes recent flight activity, and aggregates route-level summaries.
+
+**Data Flow:**
+1. **Ingestion**: `connector_faa_swim.py` (or `connector_faa_solace.py`) receives raw messages from FAA SWIM/SCDS feeds (TFMS, SFDPS, STDDS).
+2. **Normalization**: `normalizer.py` converts raw XML/JSON into a standard format, extracting identity, route, timing, and aircraft equipment.
+3. **Storage**: Observations are stored in `observed_flights` and enriched in `observed_flight_enrichment`.
+4. **Aggregation**: `aggregator.py` runs periodically to populate `recent_route_activity`, `recent_route_carrier_activity`, `recent_carrier_weekly_rollup`, and `recent_carrier_patterns`.
+5. **UI Integration**: The main app queries these aggregated summaries to display "Estimated Recent Schedules" and "Possible Recent Carrier Signals."
+
+**Privacy & Security:**
+- Raw SWIM message payloads are never stored in the database.
+- Individual flight records are not exposed via the public API or UI.
+- All metrics are served as safe, system-wide aggregates.
+
+### Carrier Alias Resolution
+
+SWIM/SCDS data often uses ICAO 3-letter operator codes (e.g., `JIA`, `RPA`, `SKW`), while historical BTS datasets use IATA/DOT 2-letter codes (e.g., `OH`, `YX`, `OO`). FlightConn includes a durable carrier alias resolution system to bridge these datasets.
+
+- **Durable Mapping**: The `carrier_aliases` table stores known mappings for major US regional and mainline carriers.
+- **Transparent Logic**: `CarrierAliasResolver` in the API service layer resolves codes at query time. When a recent observation uses an alias, the UI preserves the raw code in an `observed_as` field for transparency.
+- **Example Mappings**:
+  - `JIA` → `OH` (PSA Airlines Inc.)
+  - `RPA` → `YX` (Republic Airline)
+  - `SKW` → `OO` (SkyWest Airlines Inc.)
+  - `EDV` → `9E` (Endeavor Air Inc.)
+  - `ENY` → `MQ` (Envoy Air)
+  - `PDT` → `PT` (Piedmont Airlines)
+
+### System Health Dashboard
+
+Available at `/recent-activity-health/` (also reachable via `/status/`), the System Health dashboard provides operational visibility into the recent activity pipeline.
+
+**Metrics Provided:**
+- **Core Status**: Database connectivity, App health, and Ingestion freshness.
+- **Data Freshness**: Age of the latest observation and the timestamp of the last aggregation run.
+- **Data Quality**: Counts of "Route-Ready" observations (rows with valid carrier/origin/destination) and "Commercial Candidates" (heuristic-filtered airline activity).
+- **Pattern Memory**: Status counts (Active, Watch, Stale, Inactive) for aggregated route patterns and the longest current observation streak.
+- **Carrier Aliases**: Status of the alias table and sample mappings currently in use.
+- **Data Volume**: Current row counts for all recent-activity and enrichment tables.
+
+**API Support**:
+- `GET /api/recent-activity/health`: Returns comprehensive operational health metrics.
+- `GET /api/recent-activity/status`: Returns high-level system freshness and latest ingestion run details.
+
+**Note:** The health dashboard shows system throughput and data maturity indicators. It is not a live flight tracking interface.
+
+### Advisory Nature of Recent Data
+
+**Disclaimer:** All recent activity data shown in FlightConn is **advisory only** and **NOT for OPERATIONAL USE.**
+- Extracted times are derived from public-release messages and represent observed timing variance, not official airline schedule data.
+- Recent carrier signals and schedule estimates are generated from a 10% itinerary sample (historical) blended with recent public-release observations.
+- FlightConn does not display live aircraft positions, radar data, or replace official flight dispatch/tracking systems.
 
 **The main app is not affected by whether this sidecar runs.**
 
