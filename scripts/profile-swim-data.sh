@@ -91,7 +91,7 @@ op_non_comm=$(run_query "SELECT COUNT(*) FROM observed_flight_enrichment WHERE o
 echo "Commercial route candidates: $comm_cand"
 echo "GA/private indicators:       $ga_private"
 echo "Unknown/XXX carrier rows:    $unk_carrier"
-echo "Enrich. rows w/ route ident: $route_ident"
+echo "Rows with route strings:     $route_ident"
 echo "Op carrier but non-comm/GA:  $op_non_comm"
 echo ""
 
@@ -117,7 +117,6 @@ echo "--- Timeline ---"
 earliest_seen=$(run_query "SELECT MIN(first_seen_at) FROM observed_flights;")
 latest_updated=$(run_query "SELECT MAX(last_updated_at) FROM observed_flights;")
 
-# Check if earliest_seen is empty or NULL string
 if [[ -z "$earliest_seen" || "$earliest_seen" == "NULL" ]]; then earliest_seen="N/A"; fi
 if [[ -z "$latest_updated" || "$latest_updated" == "NULL" ]]; then latest_updated="N/A"; fi
 
@@ -125,14 +124,41 @@ echo "Earliest first_seen_at:   $earliest_seen"
 echo "Latest last_updated_at:   $latest_updated"
 echo ""
 
-echo "--- Duplicates ---"
+echo "--- Duplicate Trend / Upsert Health ---"
 dup_groups=$(run_query "SELECT COUNT(*) FROM (SELECT source_flight_id FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1) d;")
 dup_rows=$(run_query "SELECT COUNT(*) FROM observed_flights WHERE source_flight_id IN (SELECT source_flight_id FROM (SELECT source_flight_id FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1) d2);")
 dup_route_ready=$(run_query "SELECT COUNT(*) FROM observed_flights WHERE source_flight_id IN (SELECT source_flight_id FROM (SELECT source_flight_id FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1) d2) AND origin_iata IS NOT NULL AND dest_iata IS NOT NULL AND carrier_code IS NOT NULL AND carrier_code <> 'UNK';")
 
-echo "Duplicate source_flight_id groups: $dup_groups"
-echo "Total rows in duplicate groups:    $dup_rows"
-echo "Route-ready rows in duplicates:    $dup_route_ready"
+new_dups_15m=$(run_query "SELECT COUNT(*) FROM (SELECT source_flight_id FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1 AND MIN(first_seen_at) > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)) d;")
+new_dups_1h=$(run_query "SELECT COUNT(*) FROM (SELECT source_flight_id FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1 AND MIN(first_seen_at) > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 HOUR)) d;")
+updated_dups_15m=$(run_query "SELECT COUNT(*) FROM (SELECT source_flight_id FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1 AND MAX(last_updated_at) > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)) d;")
+updated_dups_1h=$(run_query "SELECT COUNT(*) FROM (SELECT source_flight_id FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1 AND MAX(last_updated_at) > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 HOUR)) d;")
+
+newest_dup_first_seen=$(run_query "SELECT MAX(first_seen_at) FROM (SELECT MIN(first_seen_at) as first_seen_at FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1) d;")
+newest_dup_last_updated=$(run_query "SELECT MAX(last_updated_at) FROM (SELECT MAX(last_updated_at) as last_updated_at FROM observed_flights GROUP BY source_flight_id HAVING COUNT(*) > 1) d;")
+
+if [[ -z "$newest_dup_first_seen" || "$newest_dup_first_seen" == "NULL" ]]; then newest_dup_first_seen="N/A"; fi
+if [[ -z "$newest_dup_last_updated" || "$newest_dup_last_updated" == "NULL" ]]; then newest_dup_last_updated="N/A"; fi
+
+echo "Duplicate source_flight_id groups:   $dup_groups"
+echo "Total rows in duplicate groups:      $dup_rows"
+echo "Route-ready rows in duplicates:      $dup_route_ready"
+echo "Groups with first_seen_at < 15m:     $new_dups_15m"
+echo "Groups with first_seen_at < 1h:      $new_dups_1h"
+echo "Groups with last_updated_at < 15m:   $updated_dups_15m"
+echo "Groups with last_updated_at < 1h:    $updated_dups_1h"
+echo "Newest first_seen_at in duplicates:  $newest_dup_first_seen"
+echo "Newest last_updated_at in dups:      $newest_dup_last_updated"
+echo ""
+
+echo "Top 10 Duplicate Groups (by row count):"
+printf "%-38s %-6s %-12s %-10s %-10s %-10s %-20s %-20s\n" "SOURCE_FLIGHT_ID" "ROWS" "CALLSIGNS" "CARRIERS" "ORIGINS" "DESTS" "MIN_FIRST_SEEN" "MAX_LAST_UPDATED"
+echo "--------------------------------------------------------------------------------------------------------------------------------------------"
+run_query "SELECT source_flight_id, COUNT(*) as c, SUBSTRING(GROUP_CONCAT(DISTINCT callsign), 1, 12), SUBSTRING(GROUP_CONCAT(DISTINCT carrier_code), 1, 10), SUBSTRING(GROUP_CONCAT(DISTINCT origin_iata), 1, 10), SUBSTRING(GROUP_CONCAT(DISTINCT dest_iata), 1, 10), MIN(first_seen_at), MAX(last_updated_at) FROM observed_flights GROUP BY source_flight_id HAVING c > 1 ORDER BY c DESC LIMIT 10;" | while IFS=$'\t' read -r gufi count calls carr org dst first last; do
+    if [[ -n "$gufi" ]]; then
+        printf "%-38s %-6s %-12s %-10s %-10s %-10s %-20s %-20s\n" "$gufi" "$count" "$calls" "$carr" "$org" "$dst" "$first" "$last"
+    fi
+done
 echo ""
 
 echo "--- recent_route_activity Freshness ---"
