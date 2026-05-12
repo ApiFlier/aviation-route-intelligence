@@ -193,14 +193,36 @@ def get_opportunity_recent_activity(origin, destination):
         LIMIT 1
     """, (origin, destination))
 
-    return {
+    res = {
         "available": True,
         "display_mode": row['display_mode'],
         "confidence": row['confidence'],
         "activity_classification": row['activity_classification'],
         "observation_count": row['observation_count'],
-        "carrier_mismatch": bool(mismatch)
+        "carrier_mismatch": bool(mismatch),
+        "carrier_activity": []
     }
+
+    # Fetch carrier-level activity
+    try:
+        carrier_rows = db.execute("""
+            SELECT carrier_code, observation_count, avg_dep_delay_mins, avg_arr_delay_mins, cancel_count, commercial_confidence
+            FROM recent_route_carrier_activity
+            WHERE origin_iata = %s AND dest_iata = %s
+        """, (origin, destination))
+        
+        for crow in carrier_rows:
+            if crow['commercial_confidence'] in ('medium', 'high'):
+                res['carrier_activity'].append({
+                    "carrier_code": crow['carrier_code'],
+                    "observation_count": crow['observation_count'],
+                    "avg_observed_arr_variance_mins": float(crow['avg_arr_delay_mins']) if crow['avg_arr_delay_mins'] is not None else None,
+                    "commercial_confidence": crow['commercial_confidence']
+                })
+    except Exception as e:
+        log.warning("Could not fetch carrier activity for opportunities: %s", e)
+
+    return res
 
 def get_recent_activity_status():
     """

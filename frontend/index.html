@@ -169,6 +169,18 @@
         .ra-red-flag { color: #ff9800; font-weight: 600; font-size: 0.72rem; margin-top: 5px; display: flex; align-items: flex-start; gap: 6px; }
         .ra-red-flag i { margin-top: 2px; }
 
+        .ra-carrier-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #0f3460; padding-top: 10px; }
+        .ra-carrier-item { background: rgba(255,255,255,0.03); border-radius: 4px; padding: 8px; }
+        .ra-carrier-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .ra-carrier-code { font-weight: 700; color: #00d9ff; font-size: 0.85rem; }
+        .ra-carrier-conf { font-size: 0.55rem; text-transform: uppercase; padding: 1px 4px; border-radius: 2px; font-weight: 600; }
+        .ra-carrier-conf.high { background: #00ff88; color: #1a1a2e; }
+        .ra-carrier-conf.medium { background: #ffeb3b; color: #1a1a2e; }
+        .ra-carrier-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+        .ra-carrier-stat { font-size: 0.7rem; color: #aaa; }
+        .ra-carrier-stat strong { color: #eee; }
+        .ra-disclaimer { font-size: 0.65rem; color: #555; margin-top: 10px; font-style: italic; line-height: 1.3; }
+
         .fare-season-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
         .fare-season-item { background: #1a1a2e; border-radius: 6px; padding: 8px 6px; text-align: center; border: 1px solid transparent; }
         .fare-season-item.cheapest { border-color: #00ff88; }
@@ -415,33 +427,65 @@
             if (!ra || !ra.available) {
                 return '<div class="ra-section"><div class="ra-title"><i class="fas fa-history"></i> Recent Activity</div><div class="no-data">Recent activity data not available.</div></div>';
             }
-            
+
             let label = ra.display_mode.replace(/_/g, ' ');
             let html = `<div class="ra-section">`;
             html += `<div class="ra-header">`;
             html += `<div class="ra-title"><i class="fas fa-history"></i> Recent Route Activity</div>`;
             html += `<span class="ra-badge ${ra.display_mode}">${label}</span>`;
             html += `</div>`;
-            
+
             html += `<div class="ra-stats">`;
             html += `<div class="ra-stat-box"><span class="ra-stat-value">${ra.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
             html += `<div class="ra-stat-box"><span class="ra-stat-value">${ra.coverage_days}d</span><span class="ra-stat-label">Coverage</span></div>`;
             html += `</div>`;
-            
+
             if (ra.red_flags && ra.red_flags.length > 0) {
                 for (const flag of ra.red_flags) {
                     html += `<div class="ra-red-flag"><i class="fas fa-exclamation-triangle"></i> ${flag}</div>`;
                 }
             }
-            
+
+            // Carrier Activity List
+            if (ra.carrier_activity && ra.carrier_activity.length > 0) {
+                html += `<div class="ra-carrier-list">`;
+                html += `<div class="ra-title" style="margin-bottom:8px;">Recent Observed Carrier Activity</div>`;
+                for (const ca of ra.carrier_activity) {
+                    html += `<div class="ra-carrier-item">`;
+                    html += `<div class="ra-carrier-header">`;
+                    html += `<span class="ra-carrier-code">${ca.carrier_code}</span>`;
+                    html += `<span class="ra-carrier-conf ${ca.commercial_confidence}">${ca.commercial_confidence} confidence</span>`;
+                    html += `</div>`;
+                    html += `<div class="ra-carrier-grid">`;
+                    html += `<div class="ra-carrier-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
+                    if (ca.cancel_count > 0) {
+                        html += `<div class="ra-carrier-stat"><i class="fas fa-ban"></i> Cancelled: <strong>${ca.cancel_count}</strong></div>`;
+                    }
+                    if (ca.avg_observed_dep_variance_mins !== null) {
+                        html += `<div class="ra-carrier-stat"><i class="fas fa-plane-departure"></i> Obs. Dep Var: <strong>${ca.avg_observed_dep_variance_mins.toFixed(0)}m</strong></div>`;
+                    }
+                    if (ca.avg_observed_arr_variance_mins !== null) {
+                        html += `<div class="ra-carrier-stat"><i class="fas fa-plane-arrival"></i> Obs. Arr Var: <strong>${ca.avg_observed_arr_variance_mins.toFixed(0)}m</strong></div>`;
+                    }
+                    if (ca.last_observed_at) {
+                        const date = new Date(ca.last_observed_at).toLocaleDateString();
+                        html += `<div class="ra-carrier-stat" style="grid-column:span 2"><i class="fas fa-clock"></i> Last observed: <strong>${date}</strong></div>`;
+                    }
+                    html += `</div></div>`;
+                }
+                html += `</div>`;
+            } else if (ra.available) {
+                html += `<div class="no-data" style="margin-top:10px;border-top:1px solid #0f3460;padding-top:10px;">No medium/high-confidence recent carrier activity is available yet.</div>`;
+            }
+
             if (ra.notes && ra.notes.length > 0) {
                 html += `<div class="ra-note"><i class="fas fa-info-circle"></i> ${ra.notes[0]}</div>`;
             }
-            
+
+            html += `<div class="ra-disclaimer">SWIM/SCDS recent activity is not for operational use and is not official schedule data.</div>`;
             html += `</div>`;
             return html;
         }
-
         function getRecentActivitySummary(ras) {
             if (!ras) return '';
             
@@ -958,6 +1002,29 @@
                         html += `</div>`;
                     }
                     html += `<div class="bts-note"><i class="fas fa-info-circle"></i> Based on historical BTS data. Actual schedules and fares may vary.</div>`;
+                }
+
+                // ── 8. Recent Observed Activity (SWIM) ────────────────────────
+                const ra = carriersData.recent_activity_context;
+                if (ra && ra.available && ra.carrier_activity) {
+                    const ca = ra.carrier_activity.find(a => a.carrier_code === carrierCode);
+                    if (ca) {
+                        html += `<div class="section-header"><i class="fas fa-history"></i> Recent Observed Activity</div>`;
+                        html += `<div class="ra-section" style="margin-top:0">`;
+                        html += `<div class="ra-header">`;
+                        html += `<div class="ra-title">Observed Timing Variance</div>`;
+                        html += `<span class="ra-carrier-conf ${ca.commercial_confidence}">${ca.commercial_confidence} confidence</span>`;
+                        html += `</div>`;
+                        html += `<div class="ra-stats">`;
+                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${ca.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
+                        if (ca.avg_observed_arr_variance_mins !== null) {
+                            const val = ca.avg_observed_arr_variance_mins.toFixed(0);
+                            html += `<div class="ra-stat-box"><span class="ra-stat-value">${val}m</span><span class="ra-stat-label">Avg Arr Var</span></div>`;
+                        }
+                        html += `</div>`;
+                        html += `<div class="ra-disclaimer">SWIM/SCDS recent activity is not for operational use and is not official schedule data.</div>`;
+                        html += `</div>`;
+                    }
                 }
 
                 const panel = document.getElementById('info-panel');

@@ -447,6 +447,16 @@
             padding: 10px 12px 12px;
             background: rgba(0,0,0,0.1);
         }
+        .ra-detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+        .ra-detail-item { background: rgba(255,255,255,0.03); border-radius: 4px; padding: 10px; border: 1px solid #0f3460; }
+        .ra-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .ra-detail-code { font-weight: 700; color: #00d9ff; font-size: 0.9rem; }
+        .ra-detail-conf { font-size: 0.55rem; text-transform: uppercase; padding: 1px 4px; border-radius: 2px; font-weight: 600; }
+        .ra-detail-conf.high { background: #00ff88; color: #1a1a2e; }
+        .ra-detail-conf.medium { background: #ffeb3b; color: #1a1a2e; }
+        .ra-detail-stat { font-size: 0.72rem; color: #888; margin-top: 3px; }
+        .ra-detail-stat strong { color: #eee; }
+        .ra-disclaimer { font-size: 0.65rem; color: #555; margin-top: 12px; font-style: italic; line-height: 1.3; }
         .detail-list {
             list-style: none;
             display: flex;
@@ -1075,6 +1085,28 @@ function buildCard(r, idx) {
 
     // ── Expandable details ────────────────────────────────────────────
     html += `<div class="card-details">`;
+
+    if (recent && recent.available && recent.carrier_activity && recent.carrier_activity.length > 0) {
+        html += `<details class="detail-section">`;
+        html += `<summary><i class="fas fa-history" style="color:#00d9ff"></i> Recent Observed Activity (SWIM/SCDS)<i class="fas fa-chevron-down toggle-icon"></i></summary>`;
+        html += `<div class="detail-body">`;
+        html += `<div class="ra-detail-grid">`;
+        recent.carrier_activity.forEach(ca => {
+            html += `<div class="ra-detail-item">`;
+            html += `<div class="ra-detail-header">`;
+            html += `<span class="ra-detail-code">${esc(ca.carrier_code)}</span>`;
+            html += `<span class="ra-detail-conf ${ca.commercial_confidence}">${esc(ca.commercial_confidence)}</span>`;
+            html += `</div>`;
+            html += `<div class="ra-detail-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
+            if (ca.avg_observed_arr_variance_mins !== null) {
+                html += `<div class="ra-detail-stat"><i class="fas fa-plane-arrival"></i> Obs. Arr Var: <strong>${ca.avg_observed_arr_variance_mins.toFixed(0)}m</strong></div>`;
+            }
+            html += `</div>`;
+        });
+        html += `</div>`;
+        html += `<div class="ra-disclaimer">SWIM/SCDS recent activity is not for operational use and is not official schedule data.</div>`;
+        html += `</div></details>`;
+    }
 
     if (reasons.length > 0) {
         html += `<details class="detail-section" open>`;

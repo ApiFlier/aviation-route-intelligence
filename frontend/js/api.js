@@ -58,6 +58,10 @@ const API = (() => {
             return _get(`/routes/${origin}/${dest}/schedules`);
         },
 
+        getRecentActivityStatus() {
+            return _get('/recent-activity/status');
+        },
+
         // ── Aircraft ──────────────────────────────────────────────────
         getAircraft({ limit = 500 } = {}) {
             return _get(`/aircraft?limit=${limit}`);
