@@ -756,6 +756,11 @@
     <div class="compare-modal">
         <div class="compare-modal-header">
             <h2>Route Opportunity Comparison</h2>
+            <div id="compare-modal-feedback" style="margin-left:auto;margin-right:20px;color:#00ff88;font-size:0.85rem;font-weight:600;display:none;"></div>
+            <div class="compare-modal-actions" style="display:flex;gap:10px;margin-right:20px;">
+                <button class="btn-compare" style="border-color:#555;" onclick="copyCompareSummary()"><i class="fas fa-copy"></i> Copy Summary</button>
+                <button class="btn-compare" style="border-color:#555;" onclick="downloadCompareCSV()"><i class="fas fa-download"></i> Download CSV</button>
+            </div>
             <button class="btn-close-compare" onclick="closeCompareModal()">&times;</button>
         </div>
         <div class="compare-table-wrap">
@@ -1451,6 +1456,111 @@ function openCompareModal() {
 function closeCompareModal() {
     document.getElementById('compare-overlay').style.display = 'none';
     document.body.style.overflow = '';
+}
+
+function showModalFeedback(msg) {
+    const el = document.getElementById('compare-modal-feedback');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+function copyCompareSummary() {
+    if (compareList.length === 0) return;
+
+    let text = 'FlightConn Route Opportunity Comparison\n\n';
+
+    compareList.forEach(r => {
+        const m = r.metrics || {};
+        const ra = r.recent_activity || {};
+
+        text += `${r.origin} → ${r.destination} (${r.origin_city} to ${r.destination_city})\n`;
+        text += `- Score: ${r.opportunity_score} (${r.label})\n`;
+        text += `- Market size: ${fmt(m.passengers)} passengers\n`;
+        text += `- Fare context: ${fmtFare(m.avg_fare)} avg fare ($${Number(m.avg_fare_per_mile || 0).toFixed(2)}/mile)\n`;
+        text += `- Service: ${m.carrier_count} airlines (Lead: ${m.dominant_carrier || '—'})\n`;
+
+        if (ra.available) {
+            const hasHist = ra.matched_historical_carriers && ra.matched_historical_carriers.length > 0;
+            const hasNew = ra.possible_recent_carrier_signals && ra.possible_recent_carrier_signals.length > 0;
+            let label = '';
+            if (hasHist && hasNew) label = 'Historical + possible recent activity';
+            else if (hasHist) label = 'Historical Carrier Observed';
+            else if (hasNew) label = 'Possible recent carrier activity';
+            else label = 'Recent activity observed';
+
+            text += `- Recent activity: ${label} (${ra.observation_count} obs over ${ra.coverage_days} days)\n`;
+        } else {
+            text += `- Recent activity: Not available\n`;
+        }
+        text += '\n';
+    });
+
+    text += 'Note: Recent activity is advisory supporting context only and not official schedule data.\n';
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showModalFeedback('Summary copied');
+        }).catch(err => {
+            console.error('Clipboard failed:', err);
+            showModalFeedback('Copy failed');
+        });
+    } else {
+        showModalFeedback('Clipboard API unavailable');
+    }
+}
+
+function downloadCompareCSV() {
+    if (compareList.length === 0) return;
+
+    const headers = ['Origin', 'Destination', 'Score', 'Label', 'Passengers', 'Avg Fare', 'Fare Per Mile', 'Airlines', 'Lead Carrier', 'On-Time %', 'Recent Activity', 'Obs Count', 'Coverage Days'];
+    const rows = compareList.map(r => {
+        const m = r.metrics || {};
+        const ra = r.recent_activity || {};
+
+        let raLabel = 'Not available';
+        if (ra.available) {
+            const hasHist = ra.matched_historical_carriers && ra.matched_historical_carriers.length > 0;
+            const hasNew = ra.possible_recent_carrier_signals && ra.possible_recent_carrier_signals.length > 0;
+            if (hasHist && hasNew) raLabel = 'Historical + possible recent activity';
+            else if (hasHist) raLabel = 'Historical Carrier Observed';
+            else if (hasNew) raLabel = 'Possible recent carrier activity';
+            else raLabel = 'Recent activity observed';
+        }
+
+        return [
+            r.origin,
+            r.destination,
+            r.opportunity_score,
+            r.label,
+            m.passengers || 0,
+            m.avg_fare || 0,
+            (m.avg_fare_per_mile || 0).toFixed(4),
+            m.carrier_count || 0,
+            m.dominant_carrier || '',
+            m.ontime_pct || '',
+            raLabel,
+            ra.observation_count || 0,
+            ra.coverage_days || 0
+        ];
+    });
+
+    const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `flightconn-comparison-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showModalFeedback('CSV downloaded');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
