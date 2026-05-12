@@ -198,9 +198,6 @@
         .fare-season-item.current .q-price { color: #00bcd4; }
         .fare-season-item .q-badge { font-size: 0.55rem; margin-top: 3px; color: #666; }
 
-        .fare-tip { background: #1a1a2e; border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 0.8rem; color: #888; line-height: 1.5; }
-        .fare-tip strong { color: #ccc; }
-        .fare-tip .bts-note { margin-top: 4px; font-size: 0.7rem; color: #555; }
 
         .fare-carrier-item { padding: 10px; margin: 4px 0; background: #1a1a2e; border-radius: 6px; cursor: pointer; transition: background 0.15s; display: flex; justify-content: space-between; align-items: center; }
         .fare-carrier-item:hover { background: #0f3460; }
@@ -807,11 +804,6 @@
                         html += `<div class="ra-header">`;
                         html += `<div class="ra-title" style="color:#555;">Status: <span style="color:#888;">${pattern.pattern_label}</span></div>`;
                         html += `</div>`;
-                        html += `<div class="ra-stats">`;
-                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.observation_count}</span><span class="ra-stat-label">Total Obs</span></div>`;
-                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.coverage_days}d</span><span class="ra-stat-label">Coverage</span></div>`;
-                        html += `</div>`;
-                        
                         // Weekday grouping
                         const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
                         const patternsByDay = {};
