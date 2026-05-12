@@ -92,7 +92,7 @@
         
         .list-header { color: #888; font-size: 0.75rem; text-transform: uppercase; margin: 15px 0 8px 0; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
         .list-header i { margin-right: 6px; }
-        .list-container { max-height: 300px; overflow-y: auto; }
+        .list-container { }
         
         .route-item, .carrier-item { padding: 10px; margin: 4px 0; background: #1a1a2e; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
         .route-item:hover, .carrier-item:hover { background: #0f3460; }
@@ -435,7 +435,18 @@
             // Filter for unmatched carriers (possible recent signals)
             const signals = (ra.recent_carrier_patterns || [])
                 .filter(p => p.match_type === 'possible_recent_carrier_signal')
-                .sort((a, b) => b.observation_count - a.observation_count)
+                .sort((a, b) => {
+                    // 1. Carriers with patterns first
+                    const aHasPatterns = (a.patterns || []).length > 0;
+                    const bHasPatterns = (b.patterns || []).length > 0;
+                    if (aHasPatterns !== bHasPatterns) return bHasPatterns ? 1 : -1;
+                    
+                    // 2. Higher observation count
+                    if (b.observation_count !== a.observation_count) return b.observation_count - a.observation_count;
+                    
+                    // 3. Most recent last_observed_at
+                    return new Date(b.last_observed_at) - new Date(a.last_observed_at);
+                })
                 .slice(0, 5);
             
             if (signals.length === 0) {
@@ -602,8 +613,6 @@
                 html += `<div class="stat-box"><div class="icon"><i class="fas fa-building"></i></div><div class="value">${stats.carrier_count || 0}</div><div class="label">Airlines</div></div>`;
                 html += '</div>';
                 
-                html += getRecentActivitySummary(airportData.recent_activity_summary);
-                
                 html += `<div class="list-header"><span><i class="fas fa-plane"></i>Routes (${routesData.total})</span></div>`;
                 html += '<div class="list-container">';
                 for (const route of routes) {
@@ -629,6 +638,8 @@
                 if (routesData.total > routes.length) {
                     html += `<button class="load-more" onclick="loadMoreRoutes('${iata}', ${routes.length})"><i class="fas fa-chevron-down"></i> Load More (${routesData.total - routes.length} remaining)</button>`;
                 }
+
+                html += getRecentActivitySummary(airportData.recent_activity_summary);
                 
                 const panel = document.getElementById('info-panel');
                 panel.innerHTML = html;
