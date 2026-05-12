@@ -709,24 +709,6 @@
                     }
                     html += '</div>';
 
-                    // This Month tip
-                    const now2 = new Date();
-                    const curYear2 = now2.getFullYear();
-                    const curQ2 = Math.ceil((now2.getMonth() + 1) / 3);
-                    const monthName = ['January','February','March','April','May','June','July','August','September','October','November','December'][now2.getMonth()];
-                    const curQData = seasonal.find(q => q.year === curYear2 && q.quarter === curQ2)
-                                  || seasonal.find(q => q.quarter === curQ2);
-                    if (curQData) {
-                        const sortedS2 = [...seasonal].sort((a,b) => a.avg_fare - b.avg_fare);
-                        const rank = sortedS2.findIndex(q => q.year === curQData.year && q.quarter === curQData.quarter) + 1;
-                        const rankLabel = rank === 1 ? 'cheapest' : rank === seasonal.length ? 'most expensive' : `#${rank} of ${seasonal.length}`;
-                        html += `<div class="fare-tip">`;
-                        html += `<i class="fas fa-calendar-day" style="color:#00bcd4;margin-right:6px;"></i>`;
-                        html += `<strong>${monthName} (${curQData.label})</strong> — avg $${Math.round(curQData.avg_fare)} · <em>${rankLabel} quarter in recent data.</em><br>`;
-                        html += `💡 Industry tip: Midweek flights (Tue–Wed) are often cheaper than weekend departures.`;
-                        html += `<div class="bts-note"><i class="fas fa-info-circle"></i> Fares are BTS quarterly averages — check airlines for exact daily pricing.</div>`;
-                        html += `</div>`;
-                    }
                 }
                 // ── Schedules summary ─────────────────────────────────────────
                 const schedDays = schedulesData.days || [];
@@ -813,26 +795,6 @@
                 html += `</div>`;
                 if (c.marketing_carrier) {
                     html += `<div class="carrier-marketing" style="color:#888;font-size:0.85rem;margin-bottom:10px;"><i class="fas fa-tag" style="color:#ff9800;margin-right:6px;"></i>Marketed as: ${c.marketing_name || c.marketing_carrier}</div>`;
-                }
-
-                // ── 1. This Month tip ─────────────────────────────────────────
-                if (carrierFares.length > 0) {
-                    const now = new Date();
-                    const curQ = Math.ceil((now.getMonth() + 1) / 3);
-                    const monthName = ['January','February','March','April','May','June','July','August','September','October','November','December'][now.getMonth()];
-                    const sortedCF = [...carrierFares].sort((a,b) => a.avg_fare - b.avg_fare);
-                    const curQData = carrierFares.find(f => f.year === now.getFullYear() && f.quarter === curQ)
-                                  || carrierFares.find(f => f.quarter === curQ);
-                    if (curQData) {
-                        const rank = sortedCF.findIndex(f => f.year === curQData.year && f.quarter === curQData.quarter) + 1;
-                        const rankLabel = rank === 1 ? 'cheapest' : rank === carrierFares.length ? 'most expensive' : `#${rank} of ${carrierFares.length}`;
-                        html += `<div class="fare-tip">`;
-                        html += `<i class="fas fa-calendar-day" style="color:#00bcd4;margin-right:6px;"></i>`;
-                        html += `<strong>${monthName} (${curQData.label})</strong> — avg $${Math.round(curQData.avg_fare)} · <em>${rankLabel} quarter for this carrier.</em><br>`;
-                        html += `💡 Industry tip: Midweek flights (Tue–Wed) are often cheaper than weekend departures.`;
-                        html += `<div class="bts-note"><i class="fas fa-info-circle"></i> BTS quarterly averages — check airline for exact daily pricing.</div>`;
-                        html += `</div>`;
-                    }
                 }
 
                 // ── 2. Recent Observed Activity (SWIM) ────────────────────────
