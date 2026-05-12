@@ -840,10 +840,10 @@
                 if (ra && ra.available && ra.recent_carrier_patterns) {
                     const pattern = ra.recent_carrier_patterns.find(p => p.carrier_code === carrierCode);
                     if (pattern) {
-                        html += `<div class="section-header"><i class="fas fa-satellite-dish"></i> Estimated Recent Schedule</div>`;
-                        html += `<div class="ra-section" style="margin-top:0">`;
+                        html += `<div class="section-header" style="color:#00d9ff; font-size:0.85rem; margin-top:25px; border-bottom:1px solid #0f3460; padding-bottom:5px; margin-bottom:12px;"><i class="fas fa-satellite-dish"></i> Estimated Recent Schedule</div>`;
+                        html += `<div class="ra-section" style="margin-top:0; border-top:none; border-top-left-radius:0; border-top-right-radius:0;">`;
                         html += `<div class="ra-header">`;
-                        html += `<div class="ra-title">${pattern.pattern_label}</div>`;
+                        html += `<div class="ra-title" style="color:#555;">Status: <span style="color:#888;">${pattern.pattern_label}</span></div>`;
                         html += `</div>`;
                         html += `<div class="ra-stats">`;
                         html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.observation_count}</span><span class="ra-stat-label">Total Obs</span></div>`;
@@ -873,24 +873,13 @@
                             html += `<div style="font-size:0.75rem; color:#888; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; font-weight:700;">${day}</div>`;
                             
                             dayPatterns.forEach(p => {
-                                let timeStr = p.observed_time_window;
-                                // If window is HH:00 UTC, format as Around H:00 AM/PM UTC
-                                if (timeStr.includes(':00 UTC') && !timeStr.includes('-')) {
-                                    const h = parseInt(timeStr.split(':')[0], 10);
-                                    const ampm = h >= 12 ? 'PM' : 'AM';
-                                    const h12 = h % 12 || 12;
-                                    timeStr = `Around ${h12}:00 ${ampm} UTC`;
-                                }
-
-                                const obsLabel = p.window_observation_count === 1 ? 'observation' : 'observations';
-                                
                                 let color = '#00d9ff';
                                 if (p.status === 'watch') color = '#ffeb3b';
                                 else if (p.status === 'stale') color = '#ff9800';
 
                                 html += `<div style="font-size:0.8rem; color:#ccc; display:flex; align-items:center; gap:8px; margin-bottom:2px;">`;
                                 html += `<i class="fas fa-clock" style="color:${color}; font-size:0.65rem;"></i>`;
-                                html += `<span>${timeStr} · <strong>${p.window_observation_count}</strong> ${obsLabel}</span>`;
+                                html += `<span>${p.display_text}</span>`;
                                 html += `</div>`;
                             });
                             html += `</div>`;

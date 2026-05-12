@@ -13,9 +13,27 @@ Consumption Rules for App APIs:
 import logging
 import json
 from datetime import datetime, timezone, timedelta
+import pytz
+from timezonefinder import TimezoneFinder
 from db import get_connection
 
 log = logging.getLogger('swim-ingestor.aggregator')
+tf = TimezoneFinder()
+
+_tz_cache = {}
+
+def _get_tz_name(iata, lat, lon):
+    if iata in _tz_cache:
+        return _tz_cache[iata]
+    if lat and lon:
+        try:
+            tz_name = tf.timezone_at(lng=float(lon), lat=float(lat))
+            if tz_name:
+                _tz_cache[iata] = tz_name
+                return tz_name
+        except Exception:
+            pass
+    return "UTC"
 
 def _execute_update(conn, sql: str, params: tuple = None) -> int:
     with conn.cursor() as cur:
@@ -390,45 +408,80 @@ def aggregate_historical_recent_comparison(lookback_days: int = 30) -> int:
 def aggregate_carrier_weekly_rollups() -> int:
     """
     Roll up observed_flights into weekly buckets (carrier, route, day, window, week).
-    Uses 3-hour time windows.
-    Prioritizes actual_dep_utc, then sched_dep_utc.
-    Filters for route-ready commercial signals only.
+    Uses 1-hour time windows centered at the hour.
+    Groups by ORIGIN-LOCAL weekday and hour.
     """
-    log.info("Aggregating carrier_weekly_rollups")
+    log.info("Aggregating carrier_weekly_rollups (local-time aware)")
     conn = get_connection()
     try:
-        # MySQL WEEK(date, 1) starts Monday.
-        # DATE_SUB(date, INTERVAL WEEKDAY(date) DAY) gives Monday of the week.
-        sql = """
-            INSERT INTO recent_carrier_weekly_rollup (
-                origin_iata, dest_iata, carrier_code, day_of_week, time_window, week_start_date, observation_count
-            )
-            SELECT 
-                o.origin_iata, 
-                o.dest_iata, 
-                o.carrier_code, 
-                WEEKDAY(COALESCE(o.actual_dep_utc, o.sched_dep_utc)) as day_of_week,
-                LPAD(HOUR(DATE_ADD(COALESCE(o.actual_dep_utc, o.sched_dep_utc), INTERVAL 30 MINUTE)), 2, '0') as `window`,
-                DATE(DATE_SUB(COALESCE(o.actual_dep_utc, o.sched_dep_utc), INTERVAL WEEKDAY(COALESCE(o.actual_dep_utc, o.sched_dep_utc)) DAY)) as week_start_date,
-                COUNT(DISTINCT o.source_flight_id) as observation_count
-            FROM observed_flights o
-            LEFT JOIN observed_flight_enrichment e ON o.source_flight_id = e.source_flight_id
-            WHERE o.origin_iata IS NOT NULL AND o.dest_iata IS NOT NULL 
-              AND o.carrier_code IS NOT NULL AND o.carrier_code NOT IN ('', 'XXX', 'UNK', 'UNKNOWN', 'UNKN')
-              AND (o.actual_dep_utc IS NOT NULL OR o.sched_dep_utc IS NOT NULL)
-              -- Exclude GA/Private tail number patterns
-              AND o.callsign NOT REGEXP '^N[1-9][0-9]{0,4}[A-Z]{0,2}$'
-              -- Prefer commercial signals
-              AND (e.user_category = 'COMMERCIAL' OR e.flight_type = 'SCHEDULED' OR e.operating_carrier_code IS NOT NULL)
-              -- Process current and previous week to ensure continuity
-              AND COALESCE(o.actual_dep_utc, o.sched_dep_utc) >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)
-            GROUP BY o.origin_iata, o.dest_iata, o.carrier_code, day_of_week, `window`, week_start_date
-            ON DUPLICATE KEY UPDATE
-                observation_count = VALUES(observation_count)
-        """
+        # Fetch airport coordinates for timezone lookups
+        with conn.cursor() as cur:
+            cur.execute("SELECT iata, lat, lon FROM airports WHERE lat IS NOT NULL AND lon IS NOT NULL")
+            airports = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+
+        # Fetch candidate flights from the last 14 days
+        # We need to process them in Python to do the timezone conversion
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.origin_iata, o.dest_iata, o.carrier_code, o.source_flight_id,
+                       COALESCE(o.actual_dep_utc, o.sched_dep_utc) as dep_utc
+                FROM observed_flights o
+                LEFT JOIN observed_flight_enrichment e ON o.source_flight_id = e.source_flight_id
+                WHERE o.origin_iata IS NOT NULL AND o.dest_iata IS NOT NULL 
+                  AND o.carrier_code IS NOT NULL AND o.carrier_code NOT IN ('', 'XXX', 'UNK', 'UNKNOWN', 'UNKN')
+                  AND (o.actual_dep_utc IS NOT NULL OR o.sched_dep_utc IS NOT NULL)
+                  AND o.callsign NOT REGEXP '^N[1-9][0-9]{0,4}[A-Z]{0,2}$'
+                  AND (e.user_category = 'COMMERCIAL' OR e.flight_type = 'SCHEDULED' OR e.operating_carrier_code IS NOT NULL)
+                  AND COALESCE(o.actual_dep_utc, o.sched_dep_utc) >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)
+            """)
+            flights = cur.fetchall()
+
+        rollups = {} # (origin, dest, carrier, dow, window, week_start) -> count
+
+        for f in flights:
+            origin, dest, carrier, fid, dep_utc = f
+            if not dep_utc: continue
+            
+            # Local time conversion
+            lat_lon = airports.get(origin)
+            tz_name = _get_tz_name(origin, *lat_lon) if lat_lon else "UTC"
+            try:
+                tz = pytz.timezone(tz_name)
+            except Exception:
+                tz = pytz.UTC
+            
+            # dep_utc is a naive datetime from MySQL (assumed UTC)
+            if dep_utc.tzinfo is None:
+                dep_utc = dep_utc.replace(tzinfo=pytz.UTC)
+            
+            dep_local = dep_utc.astimezone(tz)
+            
+            # Hour-centered bucket (local)
+            bucket_dt = dep_local + timedelta(minutes=30)
+            window = f"{bucket_dt.hour:02d}"
+            
+            # Monday = 0
+            dow = dep_local.weekday()
+            
+            # Monday of the week (local)
+            week_start = (dep_local - timedelta(days=dow)).date()
+            
+            key = (origin, dest, carrier, dow, window, week_start)
+            rollups[key] = rollups.get(key, 0) + 1
+
+        # Upsert into database
+        count = 0
         with conn.cursor() as cur_upd:
-            cur_upd.execute(sql)
-            count = cur_upd.rowcount
+            for key, obs_count in rollups.items():
+                origin, dest, carrier, dow, window, week_start = key
+                cur_upd.execute("""
+                    INSERT INTO recent_carrier_weekly_rollup (
+                        origin_iata, dest_iata, carrier_code, day_of_week, time_window, week_start_date, observation_count
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE observation_count = VALUES(observation_count)
+                """, (origin, dest, carrier, dow, window, week_start, obs_count))
+                count += 1
+        
         conn.commit()
         return count
     except Exception as e:

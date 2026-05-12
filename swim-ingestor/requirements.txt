@@ -11,3 +11,6 @@ stomp.py>=8.1.0,<9.0
 
 # Pure-Python MySQL connector (no C build dependencies required)
 PyMySQL>=1.1.0,<2.0
+
+timezonefinder==6.5.0
+pytz==2024.1

@@ -5,7 +5,29 @@ Provides read-only access to aggregated FAA SWIM data.
 
 import json
 import logging
+from datetime import datetime, timezone, timedelta
+import pytz
+try:
+    from timezonefinder import TimezoneFinder
+    tf = TimezoneFinder()
+except ImportError:
+    tf = None
 from Classes.Database import get_db
+
+_tz_cache = {}
+
+def _get_tz_name(iata, lat, lon):
+    if iata in _tz_cache:
+        return _tz_cache[iata]
+    if tf and lat and lon:
+        try:
+            tz_name = tf.timezone_at(lng=float(lon), lat=float(lat))
+            if tz_name:
+                _tz_cache[iata] = tz_name
+                return tz_name
+        except Exception:
+            pass
+    return "UTC"
 
 
 def _parse_json_list(value):
@@ -44,6 +66,31 @@ def get_route_recent_activity(origin, destination):
     Fetch recent route activity summary for a specific route.
     """
     db = get_db()
+    
+    # Fetch origin airport details for timezone conversion
+    origin_info = db.execute_one("SELECT lat, lon FROM airports WHERE iata = %s", (origin,))
+    origin_lat = origin_info['lat'] if origin_info else None
+    origin_lon = origin_info['lon'] if origin_info else None
+    tz_name = _get_tz_name(origin, origin_lat, origin_lon)
+    
+    try:
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.UTC
+
+    # Determine timezone label
+    if tz_name == "UTC":
+        tz_label = "UTC"
+    else:
+        try:
+            now_dt = datetime.now(tz)
+            tz_label = now_dt.strftime('%Z') # e.g. EDT, EST
+            # Fallback for long names or non-standard abbreviations
+            if '/' in tz_label or len(tz_label) > 5:
+                tz_label = "origin-local"
+        except Exception:
+            tz_label = "origin-local"
+
     try:
         # Check if tables exist by attempting a lightweight query
         db.execute_one("SELECT 1 FROM recent_route_activity LIMIT 1")
@@ -150,16 +197,21 @@ def get_route_recent_activity(origin, destination):
             highest_pattern_label = "Recently observed"
 
             for prow in pattern_rows:
+                raw_window = prow['time_window']
+                if '-' in raw_window:
+                    continue # Skip legacy range buckets like "09-12"
+
                 day_code = list(day_names.keys())[prow['day_of_week']]
                 day_full = day_names[day_code]
                 
-                raw_window = prow['time_window']
                 try:
                     hour = int(raw_window)
-                    window = f"{hour:02d}:00 UTC"
+                    # Convert hour to AM/PM string
+                    dt = datetime(2000, 1, 1, hour)
+                    time_label = dt.strftime('%-I:00 %p')
+                    window = f"{time_label} {tz_label}"
                 except ValueError:
-                    # Fallback for any non-integer windows, though we expect only hour buckets now
-                    window = f"{raw_window} UTC"
+                    window = f"{raw_window} {tz_label}"
 
                 streak = prow['consecutive_weeks_seen']
                 status = prow['status']
@@ -200,7 +252,7 @@ def get_route_recent_activity(origin, destination):
                     "observed_weekday": day_full,
                     "observed_time_window": window,
                     "window_observation_count": total_obs,
-                    "display_text": f"{day_full} around {window}{obs_text}{streak_text}",
+                    "display_text": f"Around {window}{obs_text}{streak_text}",
                     "streak_weeks": streak,
                     "status": status,
                     "label": label
