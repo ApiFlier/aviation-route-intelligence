@@ -81,18 +81,31 @@ def get_route_recent_activity(origin, destination):
             WHERE origin_iata = %s AND dest_iata = %s
         """, (origin, destination))
         
+        filtered_out = False
         for crow in carrier_rows:
-            res['carrier_activity'].append({
-                "carrier_code": crow['carrier_code'],
-                "observation_count": crow['observation_count'],
-                "avg_observed_dep_variance_mins": float(crow['avg_dep_delay_mins']) if crow['avg_dep_delay_mins'] is not None else None,
-                "avg_observed_arr_variance_mins": float(crow['avg_arr_delay_mins']) if crow['avg_arr_delay_mins'] is not None else None,
-                "cancel_count": crow['cancel_count'],
-                "last_observed_at": crow['last_observed_at'].isoformat() if crow['last_observed_at'] else None,
-                "commercial_confidence": crow['commercial_confidence']
-            })
+            # Only include carriers with at least medium commercial confidence
+            if crow['commercial_confidence'] in ('medium', 'high'):
+                res['carrier_activity'].append({
+                    "carrier_code": crow['carrier_code'],
+                    "observation_count": crow['observation_count'],
+                    "avg_observed_dep_variance_mins": float(crow['avg_dep_delay_mins']) if crow['avg_dep_delay_mins'] is not None else None,
+                    "avg_observed_arr_variance_mins": float(crow['avg_arr_delay_mins']) if crow['avg_arr_delay_mins'] is not None else None,
+                    "cancel_count": crow['cancel_count'],
+                    "last_observed_at": crow['last_observed_at'].isoformat() if crow['last_observed_at'] else None,
+                    "commercial_confidence": crow['commercial_confidence']
+                })
+            else:
+                filtered_out = True
+        
+        if filtered_out:
+            res['notes'].append("Low-confidence or non-commercial carrier-like signals are excluded from carrier_activity.")
+
     except Exception as e:
         log.warning("Could not fetch recent_route_carrier_activity: %s", e)
+
+    # Ensure observed_carriers in the summary only includes the filtered commercial set
+    res['observed_carriers'] = [c['carrier_code'] for c in res['carrier_activity']]
+    res['carrier_count_observed'] = len(res['observed_carriers'])
 
     # Add dynamic notes based on confidence and mode
     if row['display_mode'] == 'early_recent_signal':
