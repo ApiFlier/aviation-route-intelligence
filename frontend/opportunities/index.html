@@ -1435,7 +1435,7 @@ function openCompareModal() {
             <td>
                 <div class="comp-metric-val">${fmtFare(m.avg_fare)}</div>
                 <div class="comp-metric-label">Avg Fare</div>
-                <div class="comp-metric-val" style="font-size:0.8rem;margin-top:4px;">$${Number(m.avg_fare_per_mile || 0).toFixed(2)}</div>
+                <div class="comp-metric-val" style="font-size:0.8rem;margin-top:4px;">${m.avg_fare_per_mile != null ? '$' + Number(m.avg_fare_per_mile).toFixed(2) : '—'}</div>
                 <div class="comp-metric-label">$/Mile</div>
             </td>
             <td>
@@ -1477,7 +1477,7 @@ function copyCompareSummary() {
         text += `${r.origin} → ${r.destination} (${r.origin_city} to ${r.destination_city})\n`;
         text += `- Score: ${r.opportunity_score} (${r.label})\n`;
         text += `- Market size: ${fmt(m.passengers)} passengers\n`;
-        text += `- Fare context: ${fmtFare(m.avg_fare)} avg fare ($${Number(m.avg_fare_per_mile || 0).toFixed(2)}/mile)\n`;
+        text += `- Fare context: ${fmtFare(m.avg_fare)} avg fare (${m.avg_fare_per_mile != null ? '$' + Number(m.avg_fare_per_mile).toFixed(2) + '/mile' : 'no fare/mile data'})\n`;
         text += `- Service: ${m.carrier_count} airlines (Lead: ${m.dominant_carrier || '—'})\n`;
 
         if (ra.available) {

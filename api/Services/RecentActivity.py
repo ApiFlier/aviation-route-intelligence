@@ -461,7 +461,6 @@ def get_airport_recent_activity(iata):
         "last_observed_at": summary['last_seen'].isoformat() + " UTC" if summary['last_seen'] else None,
         "recently_observed_historical_destinations": historical_signals,
         "possible_recent_destination_signals": new_signals,
-        "debug": debug,
         "notes": ["Recent activity is advisory only and derived from public SWIM/SCDS observations."]
     }
 
