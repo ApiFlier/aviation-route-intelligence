@@ -407,6 +407,7 @@ echo "  URL:       http://localhost:${APP_PORT}"
 echo "  Career:    http://localhost:${APP_PORT}/career/"
 echo "  API:       http://localhost:${APP_PORT}/api"
 echo "  Health:    http://localhost:${APP_PORT}/health"
+echo "  System Health: http://localhost:${APP_PORT}/recent-activity-health/"
 echo "============================================="
 echo ""
 echo "Deployment Details:"
@@ -420,11 +421,11 @@ if [ "$SWIM_READY" = "true" ]; then
     echo "  - SWIM Logs: docker compose logs -f swim-ingestor"
 fi
 echo ""
-Useful commands:
-  ./update.sh          # Rebuild after code changes
-  ./backup.sh          # Refresh the repo baseline backup
-  docker compose logs -f
-  docker compose down
+echo "Useful commands:"
+echo "  ./update.sh          # Rebuild after code changes"
+echo "  ./backup.sh          # Refresh the repo baseline backup"
+echo "  docker compose logs -f"
+echo "  docker compose down"
 
 # Offer to remove local source files
 echo ""
