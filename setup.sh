@@ -13,10 +13,44 @@ echo "============================================="
 echo "  Repo: $REPO_DIR"
 echo ""
 
+# --- Configuration ---
+MIN_FREE_GB=100
+WARN_FREE_GB=150
+FORCE_SMALL_DISK=false
+
 # --- Helpers ---
 log_info()  { echo -e "[INFO]  $*"; }
 log_warn()  { echo -e "[WARN]  $*"; }
 log_error() { echo -e "[ERROR] $*" >&2; }
+
+get_free_gb() {
+    # Check free disk on the filesystem containing / (usually where Docker data lives)
+    df -BG / | awk 'NR==2 {print $4}' | sed 's/G//'
+}
+
+# Parse arguments
+for arg in "$@"; do
+    if [ "$arg" == "--force-small-disk" ]; then
+        FORCE_SMALL_DISK=true
+    fi
+done
+
+# ── Disk Preflight ────────────────────────────────────────────────────
+FREE_GB=$(get_free_gb)
+log_info "Disk preflight: ${FREE_GB}GB free."
+
+if [ "$FREE_GB" -lt "$MIN_FREE_GB" ]; then
+    log_error "Insufficient disk space: ${FREE_GB}GB free (Minimum required: ${MIN_FREE_GB}GB)."
+    log_error "FlightConn uses Docker images, MySQL volumes, build cache, logs, and SWIM ingestion data."
+    if [ "$FORCE_SMALL_DISK" = "true" ]; then
+        log_warn "--force-small-disk detected. Proceeding despite low disk space."
+    else
+        log_error "Please free up disk space or run with --force-small-disk if you are sure."
+        exit 1
+    fi
+elif [ "$FREE_GB" -lt "$WARN_FREE_GB" ]; then
+    log_warn "Disk space is low (${FREE_GB}GB). ${WARN_FREE_GB}GB or more is recommended for stable operation."
+fi
 
 # ── Load deploy.env if present ────────────────────────────────────────
 # deploy.env is the user-supplied config file (port pin, SWIM credentials).
@@ -392,11 +426,13 @@ Useful commands:
   docker compose logs -f
   docker compose down
 
-# Offer to remove local source files (the running app and volumes are unaffected)
+# Offer to remove local source files
 echo ""
-log_warn "WARNING: Deleting local source files will make future updates difficult."
-log_warn "Future updates will require re-cloning the repository or restoring the deployment files."
-log_warn "The running containers and Docker volumes will remain unaffected."
+log_warn "STORAGE NOTICE: Deleting local source files will save some space, but:"
+log_warn "  1. Running containers and Docker volumes will REMAIN on the host disk."
+log_warn "  2. Docker-managed images, logs, and database data are NOT deleted by this action."
+log_warn "  3. Future updates will require re-cloning the repository."
+log_warn "  4. If you have a local baseline backup that wasn't pushed to GitHub, it will be LOST."
 echo ""
 printf "Delete local source files now? [y/N] "
 DEL_CHOICE=""
@@ -405,7 +441,7 @@ if [ "${DEL_CHOICE}" = "y" ] || [ "${DEL_CHOICE}" = "Y" ]; then
     echo "==> Removing local source files..."
     cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
     rm -rf "$REPO_DIR"
-    echo "    Done. The running app and Docker volumes are preserved."
+    echo "    Done. The running app, Docker images, and persistent volumes are preserved."
 else
     echo "    Source files preserved."
 fi

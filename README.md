@@ -375,7 +375,7 @@ Use this for standard production updates. It pulls the latest code, rebuilds con
 - Pulls the latest code from GitHub (aborts if you have local changes).
 - Rebuilds and restarts containers with `docker compose up -d --build`.
 - Verifies app health and SWIM freshness.
-- **Note:** This script does *not* create database backups.
+- **Note:** This script does *not* create routine database backups.
 
 ### 2. Baseline Backup (`./backup.sh`)
 
@@ -400,18 +400,31 @@ Use this for fresh installs or when you need to rebuild the environment from scr
 ```
 
 **Key Features:**
-- **Baseline Restore:** If `api/Data/flightconn-baseline.sql.gz` exists, it asks whether to restore it into the database.
-- **Port Detection:** Automatically finds and assigns an available host port.
-- **Source Cleanup:** After a successful setup, it offers to delete the local source files to save space.
-- **Warning:** Deleting local source files will make future updates difficult, as you will need to re-clone the repository to run `update.sh`.
+- **Disk Preflight:** Checks for sufficient free space (100GB min, 150GB recommended).
+- **Baseline Restore:** If `api/Data/flightconn-baseline.sql.gz` exists, it asks whether to restore it.
+- **Source Cleanup:** After a successful setup, it offers to delete the local source files.
 
 ---
 
-## Storage & Safety
+## Storage Requirements & Safety
 
-- **Disk Cleanup:** Both `setup.sh` and `update.sh` utilize `scripts/health-cleanup.sh` to monitor disk usage. Cleanup is triggered if usage exceeds 85%.
-- **Safety Guarantee:** The scripts **NEVER** delete Docker named volumes (`flightconn_mysql`) or your `.env`/`deploy.env` files.
-- **Warning:** Never use `docker compose down -v` unless you intentionally want to permanently delete all local database data.
+FlightConn is a data-intensive application. Even if you delete the local source folder, Docker continues to use host disk space for managed artifacts.
+
+### Recommendations
+- **Minimum Free Disk:** 100GB (Installation will block below this without `--force-small-disk`).
+- **Preferred Free Disk:** 150GB+ for stable operation and long-term SWIM ingestion.
+
+### Where Disk is Used
+- **Docker Images:** Pre-built environments for the app, database, and ingestor.
+- **Named Volumes:** Persistent MySQL data (`flightconn_mysql`) lives on the host disk even when containers are stopped.
+- **Container Logs:** Restricted to 10MB per file (5 files max) via Docker Compose rotation.
+- **Build Cache:** Temporary files created during container updates.
+
+### Safety Guidelines
+- **Automated Cleanup:** Running `./update.sh` calls `scripts/health-cleanup.sh`, which safely prunes build cache and dangling images.
+- **Data Preservation:** The scripts **NEVER** delete Docker volumes or your `.env`/`deploy.env` files automatically.
+- **Warning:** Do NOT use `docker compose down -v` unless you intentionally want to **permanently delete** all database data.
+- **Source Deletion:** If you choose to delete local source files after setup, remember that running containers, images, and volumes remain on your host. You will need to re-clone the repo for future updates.
 
 ---
 ## Known Limitations
