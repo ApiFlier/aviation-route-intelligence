@@ -13,12 +13,21 @@ log_info()  { echo -e "[INFO]  $*"; }
 log_warn()  { echo -e "[WARN]  $*"; }
 log_error() { echo -e "[ERROR] $*" >&2; }
 
+# Parse arguments
+DRY_RUN=false
+for arg in "$@"; do
+    if [ "$arg" == "--dry-run" ]; then
+        DRY_RUN=true
+    fi
+done
+
 if [ ! -f "$ENV_FILE" ]; then
     log_error ".env file not found. Run ./setup.sh first."
     exit 1
 fi
 
-# Source .env
+# Source .env to get credentials for local script context if needed,
+# but we primarily rely on container environment variables.
 set -a
 # shellcheck disable=SC1091
 source "$ENV_FILE"
@@ -39,10 +48,28 @@ EXCLUDE_DATA_TABLES=(
 # --- Main ---
 log_info "Refreshing baseline backup: $BASELINE_PATH"
 
-# Verify DB container is running
+# 1. Verify DB container is running
 if ! docker inspect -f '{{.State.Running}}' flightconn-db >/dev/null 2>&1; then
     log_error "flightconn-db container is not running."
     exit 1
+fi
+
+# 2. Verify DB is reachable
+if ! docker exec flightconn-db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "SELECT 1;"' >/dev/null 2>&1; then
+    log_error "Database is not reachable inside the container."
+    exit 1
+fi
+
+if [ "$DRY_RUN" = "true" ]; then
+    log_info "DRY RUN: Commands that would be executed:"
+    IGNORE_OPTS=""
+    for TABLE in "${EXCLUDE_DATA_TABLES[@]}"; do
+        IGNORE_OPTS="${IGNORE_OPTS} --ignore-table=\$MYSQL_DATABASE.${TABLE}"
+    done
+    echo "docker exec flightconn-db sh -lc 'mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" \"\$MYSQL_DATABASE\" $IGNORE_OPTS' > TEMP_DUMP"
+    echo "docker exec flightconn-db sh -lc 'mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" --no-data \"\$MYSQL_DATABASE\" ${EXCLUDE_DATA_TABLES[*]}' >> TEMP_DUMP"
+    echo "gzip -c TEMP_DUMP > $BASELINE_PATH"
+    exit 0
 fi
 
 # Create a temporary file for the dump
@@ -51,23 +78,34 @@ TEMP_DUMP=$(mktemp)
 # Pass 1: Dump all tables EXCEPT the excluded ones
 IGNORE_OPTS=""
 for TABLE in "${EXCLUDE_DATA_TABLES[@]}"; do
-    IGNORE_OPTS="${IGNORE_OPTS} --ignore-table=flightconn.${TABLE}"
+    IGNORE_OPTS="${IGNORE_OPTS} --ignore-table=\$MYSQL_DATABASE.${TABLE}"
 done
 
 log_info "Dumping core data..."
 # shellcheck disable=SC2086
-docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" flightconn-db \
-    mysqldump -uroot flightconn $IGNORE_OPTS > "$TEMP_DUMP"
+if ! docker exec flightconn-db sh -lc "mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" \"\$MYSQL_DATABASE\" $IGNORE_OPTS" > "$TEMP_DUMP"; then
+    log_error "Core data dump failed."
+    rm -f "$TEMP_DUMP"
+    exit 1
+fi
 
 # Pass 2: Dump ONLY the schema for the excluded tables
 log_info "Dumping SWIM runtime schemas (no data)..."
-docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" flightconn-db \
-    mysqldump -uroot --no-data flightconn "${EXCLUDE_DATA_TABLES[@]}" >> "$TEMP_DUMP"
+# We wrap this in a subshell inside the container to handle missing tables gracefully if needed,
+# though mysqldump will just error if a table is missing.
+if ! docker exec flightconn-db sh -lc "mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" --no-data \"\$MYSQL_DATABASE\" ${EXCLUDE_DATA_TABLES[*]}" >> "$TEMP_DUMP"; then
+    log_warn "Schema-only dump encountered an error. Some SWIM tables may be missing from the schema."
+    # We continue anyway if core data was successful
+fi
 
 # Compress and move to baseline path
 log_info "Compressing..."
-gzip -c "$TEMP_DUMP" > "$BASELINE_PATH"
-rm "$TEMP_DUMP"
+if ! gzip -c "$TEMP_DUMP" > "$BASELINE_PATH"; then
+    log_error "Compression failed."
+    rm -f "$TEMP_DUMP"
+    exit 1
+fi
+rm -f "$TEMP_DUMP"
 
 if [ ! -s "$BASELINE_PATH" ]; then
     log_error "Generated backup file is empty!"
