@@ -428,59 +428,37 @@
                 return '<div class="ra-section"><div class="ra-title"><i class="fas fa-history"></i> Recent Activity</div><div class="no-data">Recent activity data not available.</div></div>';
             }
 
-            let label = ra.display_mode.replace(/_/g, ' ');
+            // Filter for unmatched carriers (possible recent signals)
+            const signals = (ra.recent_carrier_patterns || []).filter(p => p.match_type === 'possible_recent_carrier_signal');
+            
+            if (signals.length === 0) {
+                return ''; // Don't show anything on the route card if there are no unmatched signals
+            }
+
             let html = `<div class="ra-section">`;
             html += `<div class="ra-header">`;
-            html += `<div class="ra-title"><i class="fas fa-history"></i> Recent Route Activity</div>`;
-            html += `<span class="ra-badge ${ra.display_mode}">${label}</span>`;
+            html += `<div class="ra-title"><i class="fas fa-satellite-dish"></i> Possible Recent Carrier Signals</div>`;
             html += `</div>`;
 
-            html += `<div class="ra-stats">`;
-            html += `<div class="ra-stat-box"><span class="ra-stat-value">${ra.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
-            html += `<div class="ra-stat-box"><span class="ra-stat-value">${ra.coverage_days}d</span><span class="ra-stat-label">Coverage</span></div>`;
-            html += `</div>`;
-
-            if (ra.red_flags && ra.red_flags.length > 0) {
-                for (const flag of ra.red_flags) {
-                    html += `<div class="ra-red-flag"><i class="fas fa-exclamation-triangle"></i> ${flag}</div>`;
+            html += `<div class="ra-carrier-list" style="border-top:none;padding-top:0;margin-top:0;">`;
+            for (const ca of signals) {
+                html += `<div class="ra-carrier-item">`;
+                html += `<div class="ra-carrier-header">`;
+                html += `<span class="ra-carrier-code">${ca.carrier_code}</span>`;
+                html += `</div>`;
+                html += `<div class="ra-carrier-grid">`;
+                html += `<div class="ra-carrier-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
+                if (ca.last_observed_at) {
+                    html += `<div class="ra-carrier-stat" style="grid-column:span 2"><i class="fas fa-clock"></i> Last observed: <strong>${ca.last_observed_at}</strong></div>`;
                 }
-            }
-
-            // Carrier Activity List
-            if (ra.carrier_activity && ra.carrier_activity.length > 0) {
-                html += `<div class="ra-carrier-list">`;
-                html += `<div class="ra-title" style="margin-bottom:8px;">Recent Observed Carrier Activity</div>`;
-                for (const ca of ra.carrier_activity) {
-                    html += `<div class="ra-carrier-item">`;
-                    html += `<div class="ra-carrier-header">`;
-                    html += `<span class="ra-carrier-code">${ca.carrier_code}</span>`;
-                    html += `<span class="ra-carrier-conf ${ca.commercial_confidence}">${ca.commercial_confidence} confidence</span>`;
-                    html += `</div>`;
-                    html += `<div class="ra-carrier-grid">`;
-                    html += `<div class="ra-carrier-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
-                    if (ca.cancel_count > 0) {
-                        html += `<div class="ra-carrier-stat"><i class="fas fa-ban"></i> Cancelled: <strong>${ca.cancel_count}</strong></div>`;
-                    }
-                    if (ca.avg_observed_dep_variance_mins !== null) {
-                        html += `<div class="ra-carrier-stat"><i class="fas fa-plane-departure"></i> Obs. Dep Var: <strong>${ca.avg_observed_dep_variance_mins.toFixed(0)}m</strong></div>`;
-                    }
-                    if (ca.avg_observed_arr_variance_mins !== null) {
-                        html += `<div class="ra-carrier-stat"><i class="fas fa-plane-arrival"></i> Obs. Arr Var: <strong>${ca.avg_observed_arr_variance_mins.toFixed(0)}m</strong></div>`;
-                    }
-                    if (ca.last_observed_at) {
-                        const date = new Date(ca.last_observed_at).toLocaleDateString();
-                        html += `<div class="ra-carrier-stat" style="grid-column:span 2"><i class="fas fa-clock"></i> Last observed: <strong>${date}</strong></div>`;
-                    }
-                    html += `</div></div>`;
+                if (ca.patterns && ca.patterns.length > 0) {
+                    html += `<div class="ra-carrier-stat" style="grid-column:span 2;margin-top:4px;"><i class="fas fa-calendar-alt"></i> ${ca.patterns[0].display_text}</div>`;
                 }
                 html += `</div>`;
-            } else if (ra.available) {
-                html += `<div class="no-data" style="margin-top:10px;border-top:1px solid #0f3460;padding-top:10px;">No medium/high-confidence recent carrier activity is available yet.</div>`;
+                html += `<div class="ra-note" style="border-top:none;padding-top:4px;font-size:0.65rem;">This carrier was observed recently but does not appear in the historical carrier list for this route.</div>`;
+                html += `</div>`;
             }
-
-            if (ra.notes && ra.notes.length > 0) {
-                html += `<div class="ra-note"><i class="fas fa-info-circle"></i> ${ra.notes[0]}</div>`;
-            }
+            html += `</div>`;
 
             html += `<div class="ra-disclaimer">SWIM/SCDS recent activity is not for operational use and is not official schedule data.</div>`;
             html += `</div>`;
@@ -982,7 +960,7 @@
                     const prevYearMatch = carrierFares.find(f => f.quarter === curQ && f.year === now.getFullYear() - 1);
                     const sameQMatch = prevYearMatch || [...carrierFares].filter(f => f.quarter === curQ).sort((a,b) => b.year - a.year)[0];
                     const fareCtx = sameQMatch ? ` · $${Math.round(sameQMatch.avg_fare)} avg (Q${sameQMatch.quarter} ${sameQMatch.year})` : '';
-                    html += `<div class="section-header"><i class="fas fa-calendar-alt"></i> Typical Schedule${fareCtx}</div>`;
+                    html += `<div class="section-header"><i class="fas fa-calendar-alt"></i> Historical Typical Schedule${fareCtx}</div>`;
                     for (const day of carrierDays) {
                         html += `<div class="schedule-day">`;
                         html += `<div class="schedule-day-name">${day.day_name}</div>`;
@@ -1006,22 +984,31 @@
 
                 // ── 8. Recent Observed Activity (SWIM) ────────────────────────
                 const ra = carriersData.recent_activity_context;
-                if (ra && ra.available && ra.carrier_activity) {
-                    const ca = ra.carrier_activity.find(a => a.carrier_code === carrierCode);
-                    if (ca) {
-                        html += `<div class="section-header"><i class="fas fa-history"></i> Recent Observed Activity</div>`;
+                if (ra && ra.available && ra.recent_carrier_patterns) {
+                    const pattern = ra.recent_carrier_patterns.find(p => p.carrier_code === carrierCode);
+                    if (pattern) {
+                        html += `<div class="section-header"><i class="fas fa-satellite-dish"></i> ${pattern.pattern_label}</div>`;
                         html += `<div class="ra-section" style="margin-top:0">`;
                         html += `<div class="ra-header">`;
-                        html += `<div class="ra-title">Observed Timing Variance</div>`;
-                        html += `<span class="ra-carrier-conf ${ca.commercial_confidence}">${ca.commercial_confidence} confidence</span>`;
+                        html += `<div class="ra-title">Recent Observed Schedule Pattern</div>`;
                         html += `</div>`;
                         html += `<div class="ra-stats">`;
-                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${ca.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
-                        if (ca.avg_observed_arr_variance_mins !== null) {
-                            const val = ca.avg_observed_arr_variance_mins.toFixed(0);
-                            html += `<div class="ra-stat-box"><span class="ra-stat-value">${val}m</span><span class="ra-stat-label">Avg Arr Var</span></div>`;
-                        }
+                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
+                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.coverage_days}d</span><span class="ra-stat-label">Coverage</span></div>`;
                         html += `</div>`;
+                        
+                        if (pattern.patterns && pattern.patterns.length > 0) {
+                            html += `<div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">`;
+                            for (const p of pattern.patterns) {
+                                html += `<div style="font-size:0.8rem;color:#eee;"><i class="fas fa-clock" style="color:#00d9ff;margin-right:8px;font-size:0.7rem;"></i>${p.display_text}</div>`;
+                            }
+                            html += `</div>`;
+                        }
+
+                        if (pattern.last_observed_at) {
+                            html += `<div style="margin-top:10px;font-size:0.7rem;color:#888;"><i class="fas fa-history" style="margin-right:6px;"></i>Last observed: <strong>${pattern.last_observed_at}</strong></div>`;
+                        }
+
                         html += `<div class="ra-disclaimer">SWIM/SCDS recent activity is not for operational use and is not official schedule data.</div>`;
                         html += `</div>`;
                     }

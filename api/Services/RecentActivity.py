@@ -9,7 +9,7 @@ from Classes.Database import get_db
 
 
 def _parse_json_list(value):
-    """Safely parse a JSON array column that MySQLdb returns as a string."""
+    """Safely parse a JSON array column."""
     if value is None:
         return []
     if isinstance(value, list):
@@ -21,6 +21,21 @@ def _parse_json_list(value):
         except Exception:
             return []
     return []
+
+
+def _parse_json_dict(value):
+    """Safely parse a JSON object column."""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
 
 log = logging.getLogger('api.services.recent_activity')
 
@@ -57,65 +72,109 @@ def get_route_recent_activity(origin, destination):
         "origin": row['origin_iata'],
         "destination": row['dest_iata'],
         "display_mode": row['display_mode'],
-        "confidence": row['confidence'],
-        "activity_classification": row['activity_classification'],
-        "commercial_confidence": row['commercial_confidence'],
         "coverage_days": row['coverage_days'],
         "observation_count": row['observation_count'],
-        "observed_carriers": _parse_json_list(row['observed_carriers']),
-        "carrier_count_observed": row['carrier_count_observed'],
-        "common_dep_days": row['common_dep_days'],
-        "common_dep_windows": row['common_dep_windows'],
-        "last_observed_at": row['last_observed_at'].isoformat() if row['last_observed_at'] else None,
-        "classification_note": row['classification_note'],
+        "observed_carriers": [],
         "carrier_activity": [],
+        "recent_carrier_patterns": [],
         "notes": [],
         "red_flags": []
     }
 
-    # Fetch carrier-level activity if available
+    # Fetch carrier-level activity and match types
     try:
         carrier_rows = db.execute("""
-            SELECT carrier_code, observation_count, avg_dep_delay_mins, avg_arr_delay_mins, cancel_count, last_observed_at, commercial_confidence
-            FROM recent_route_carrier_activity
-            WHERE origin_iata = %s AND dest_iata = %s
+            SELECT 
+                ca.carrier_code, 
+                ca.observation_count, 
+                ca.coverage_days,
+                ca.avg_dep_delay_mins, 
+                ca.avg_arr_delay_mins, 
+                ca.cancel_count, 
+                ca.last_observed_at, 
+                ca.commercial_confidence,
+                ca.common_dep_days,
+                ca.common_dep_windows,
+                comp.in_historical_data,
+                c.name as carrier_name
+            FROM recent_route_carrier_activity ca
+            LEFT JOIN route_historical_recent_comparison comp 
+                ON ca.origin_iata = comp.origin_iata 
+               AND ca.dest_iata = comp.dest_iata 
+               AND ca.carrier_code = comp.carrier_code
+            LEFT JOIN carriers c ON ca.carrier_code = c.code
+            WHERE ca.origin_iata = %s AND ca.dest_iata = %s
         """, (origin, destination))
         
-        filtered_out = False
         for crow in carrier_rows:
-            # Only include carriers with at least medium commercial confidence
-            if crow['commercial_confidence'] in ('medium', 'high'):
+            # Match type determination
+            match_type = 'historical_carrier_match' if crow.get('in_historical_data') else 'possible_recent_carrier_signal'
+            
+            # Pattern label logic
+            obs = crow['observation_count']
+            cov = crow['coverage_days']
+            
+            if obs >= 1 and cov >= 21: # Roughly 3 weeks
+                pattern_label = "Recurring recent pattern"
+            elif obs >= 3 and cov >= 7:
+                pattern_label = "Recent observed schedule pattern"
+            elif obs >= 3:
+                pattern_label = "Early recent pattern"
+            else:
+                pattern_label = "Recently observed"
+
+            # Parse patterns
+            days = _parse_json_dict(crow.get('common_dep_days'))
+            windows = _parse_json_list(crow.get('common_dep_windows'))
+            
+            patterns = []
+            day_names = {"Mon": "Monday", "Tue": "Tuesday", "Wed": "Wednesday", "Thu": "Thursday", "Fri": "Friday", "Sat": "Saturday", "Sun": "Sunday"}
+            
+            # Create pattern strings
+            # If patterns are missing, we just won't show them, but we still show the carrier.
+            sorted_days = sorted(days.items(), key=lambda x: x[1], reverse=True)
+            for day_code, count in sorted_days[:3]:
+                day_full = day_names.get(day_code, day_code)
+                top_window = windows[0]['window'] if windows else "various times"
+                patterns.append({
+                    "observed_weekday": day_full,
+                    "observed_time_window": top_window,
+                    "window_observation_count": count,
+                    "display_text": f"{day_full} around {top_window} · Observed {count} times"
+                })
+
+            res['recent_carrier_patterns'].append({
+                "carrier_code": crow['carrier_code'],
+                "carrier_name": crow['carrier_name'],
+                "marketing_carrier_name": None, # Simplified for now
+                "match_type": match_type,
+                "observation_count": obs,
+                "coverage_days": cov,
+                "last_observed_at": crow['last_observed_at'].isoformat() + " UTC" if crow['last_observed_at'] else None,
+                "patterns": patterns,
+                "pattern_label": pattern_label
+            })
+
+            # Maintain legacy carrier_activity for backward compatibility
+            if crow.get('commercial_confidence') in ('medium', 'high'):
                 res['carrier_activity'].append({
                     "carrier_code": crow['carrier_code'],
                     "observation_count": crow['observation_count'],
                     "avg_observed_dep_variance_mins": float(crow['avg_dep_delay_mins']) if crow['avg_dep_delay_mins'] is not None else None,
                     "avg_observed_arr_variance_mins": float(crow['avg_arr_delay_mins']) if crow['avg_arr_delay_mins'] is not None else None,
                     "cancel_count": crow['cancel_count'],
-                    "last_observed_at": crow['last_observed_at'].isoformat() if crow['last_observed_at'] else None,
-                    "commercial_confidence": crow['commercial_confidence']
+                    "last_observed_at": crow['last_observed_at'].isoformat() + " UTC" if crow['last_observed_at'] else None,
                 })
-            else:
-                filtered_out = True
         
-        if filtered_out:
-            res['notes'].append("Low-confidence or non-commercial carrier-like signals are excluded from carrier_activity.")
-
     except Exception as e:
         log.warning("Could not fetch recent_route_carrier_activity: %s", e)
 
-    # Ensure observed_carriers in the summary only includes the filtered commercial set
+    # Ensure observed_carriers in the summary only includes the commercial set
     res['observed_carriers'] = [c['carrier_code'] for c in res['carrier_activity']]
-    res['carrier_count_observed'] = len(res['observed_carriers'])
 
-    # Add dynamic notes based on confidence and mode
+    # Add dynamic notes based on mode
     if row['display_mode'] == 'early_recent_signal':
         res['notes'].append("Recent activity data is still building and should be interpreted as an early signal.")
-        res['notes'].append("Historical route context remains the primary reference until more recent coverage is available.")
-    
-    if row['activity_classification'] == 'historical_commercial_match':
-        res['notes'].append("Recent observations match established historical commercial patterns.")
-    elif row['activity_classification'] == 'recent_commercial_candidate':
-        res['notes'].append("Recent observations show significant activity on this route, suggesting a new commercial candidate.")
     
     if res['carrier_activity']:
         res['notes'].append("Carrier-level timing metrics are derived from public-release SWIM/SCDS messages and represent observed variance, not official airline schedule data.")
@@ -128,7 +187,6 @@ def get_route_recent_activity(origin, destination):
     """, (origin, destination))
     if mismatch:
         res['red_flags'].append("Carrier mismatch detected: Some historical carriers have not been recently observed.")
-        res['notes'].append("Observed activity may reflect schedule changes, seasonality, or incomplete data.")
 
     return res
 

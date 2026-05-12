@@ -1095,7 +1095,6 @@ function buildCard(r, idx) {
             html += `<div class="ra-detail-item">`;
             html += `<div class="ra-detail-header">`;
             html += `<span class="ra-detail-code">${esc(ca.carrier_code)}</span>`;
-            html += `<span class="ra-detail-conf ${ca.commercial_confidence}">${esc(ca.commercial_confidence)}</span>`;
             html += `</div>`;
             html += `<div class="ra-detail-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
             if (ca.avg_observed_arr_variance_mins !== null) {
