@@ -360,77 +360,60 @@ curl http://localhost:<PORT>/api/routes/opportunities?limit=3
 
 ## Updates & Maintenance
 
-FlightConn includes a robust update script to keep your instance current while protecting your data.
+FlightConn uses a simplified three-script maintenance model to keep your instance current while protecting core data.
 
-### Standard Update
+### 1. Update (`./update.sh`)
 
-To pull the latest code, rebuild containers, and perform a health check:
+Use this for standard production updates. It pulls the latest code, rebuilds containers, and performs health checks.
 
 ```bash
 ./update.sh
 ```
 
-The script automatically:
-1. Performs a safe disk cleanup (pruning old build cache and dangling images).
-2. Checks for local Git changes to prevent overwriting your work.
-3. Pulls the latest code from your current upstream branch (defaulting to `origin dev`).
-4. Creates a compressed MySQL backup in `~/.flightconn/backups/`.
-5. Auto-detects if the SWIM profile should be enabled based on your `.env`/`deploy.env`.
-6. Rebuilds and restarts containers with `docker compose up -d --build`.
-7. Verifies app health and SWIM freshness.
+**What it does:**
+- Runs a safe disk cleanup (pruning build cache and dangling images).
+- Pulls the latest code from GitHub (aborts if you have local changes).
+- Rebuilds and restarts containers with `docker compose up -d --build`.
+- Verifies app health and SWIM freshness.
+- **Note:** This script does *not* create database backups.
 
-### Backups
+### 2. Baseline Backup (`./backup.sh`)
 
-Backups are stored in `~/.flightconn/backups/`.
-- `flightconn-latest.sql.gz`: The most recent backup.
-- `flightconn-YYYYmmdd-HHMMSS.sql.gz`: Timestamped historical backups.
+Use this to refresh the repository's baseline database backup.
 
-**Retention Policy:**
-The update script keeps:
-- The `latest` backup.
-- At least the 7 newest timestamped backups.
-- Any backup created within the last 14 days.
-
-### Restore & Rollback
-
-If an update fails or you need to revert to a previous state:
-
-**Rollback to pre-update state:**
 ```bash
-./update.sh --rollback
+./backup.sh
 ```
 
-**Restore the latest backup:**
+**What it does:**
+- Dumps the core database to `api/Data/flightconn-baseline.sql.gz`.
+- **Excludes disposable SWIM runtime history** (e.g., `observed_flights`) to keep the repository lean, while preserving the table schemas.
+- Offers to commit and push the refreshed backup to GitHub.
+- **Warning:** If you do not push the backup to GitHub, it exists only in your local working tree and will be lost if you delete the local source files.
+
+### 3. Setup & Rebuild (`./setup.sh`)
+
+Use this for fresh installs or when you need to rebuild the environment from scratch.
+
 ```bash
-./update.sh --restore-latest
+./setup.sh
 ```
 
-**Restore a specific backup:**
-```bash
-./update.sh --restore /path/to/backup.sql.gz
-```
-
-*Note: Restore operations require explicit confirmation by typing `RESTORE` unless `--yes` is passed.*
-
-### Storage Management
-
-The update process includes a "Storage Safety" mechanism. It monitors disk usage and triggers cleanup if it exceeds 85%.
-
-**Safe Cleanup targets:**
-1. Old backups (exceeding retention policy).
-2. Docker build cache older than 24 hours.
-3. Dangling Docker images.
-4. Stopped containers and unused networks.
-
-**Safety Guarantee:**
-The script **NEVER** deletes:
-- Docker named volumes (where your live database lives).
-- Active database backups within the retention period.
-- Your `.env` or `deploy.env` files.
-- Files outside of the known project and backup paths.
+**Key Features:**
+- **Baseline Restore:** If `api/Data/flightconn-baseline.sql.gz` exists, it asks whether to restore it into the database.
+- **Port Detection:** Automatically finds and assigns an available host port.
+- **Source Cleanup:** After a successful setup, it offers to delete the local source files to save space.
+- **Warning:** Deleting local source files will make future updates difficult, as you will need to re-clone the repository to run `update.sh`.
 
 ---
 
+## Storage & Safety
+
+- **Disk Cleanup:** Both `setup.sh` and `update.sh` utilize `scripts/health-cleanup.sh` to monitor disk usage. Cleanup is triggered if usage exceeds 85%.
+- **Safety Guarantee:** The scripts **NEVER** delete Docker named volumes (`flightconn_mysql`) or your `.env`/`deploy.env` files.
+- **Warning:** Never use `docker compose down -v` unless you intentionally want to permanently delete all local database data.
+
+---
 ## Known Limitations
 
 **General**

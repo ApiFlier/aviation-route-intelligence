@@ -13,6 +13,11 @@ echo "============================================="
 echo "  Repo: $REPO_DIR"
 echo ""
 
+# --- Helpers ---
+log_info()  { echo -e "[INFO]  $*"; }
+log_warn()  { echo -e "[WARN]  $*"; }
+log_error() { echo -e "[ERROR] $*" >&2; }
+
 # ── Load deploy.env if present ────────────────────────────────────────
 # deploy.env is the user-supplied config file (port pin, SWIM credentials).
 # It is never generated or modified by setup.sh.
@@ -44,10 +49,20 @@ if ! docker compose version &>/dev/null 2>&1; then
     exit 1
 fi
 
-# Verify the database backup exists
-if [ ! -f "$BACKUP" ]; then
-    echo "ERROR: Database backup not found: $BACKUP" >&2
-    exit 1
+# Verify database backup (check baseline first, then legacy)
+BASELINE_BACKUP="$REPO_DIR/api/Data/flightconn-baseline.sql.gz"
+LEGACY_BACKUP="$REPO_DIR/api/Data/db_backup.sql.gz"
+BACKUP_TO_RESTORE=""
+
+if [ -f "$BASELINE_BACKUP" ]; then
+    printf "A baseline database backup was found. Restore it? [y/N] "
+    read -r RESTORE_CHOICE < /dev/tty || true
+    if [ "$RESTORE_CHOICE" = "y" ] || [ "$RESTORE_CHOICE" = "Y" ]; then
+        BACKUP_TO_RESTORE="$BASELINE_BACKUP"
+    fi
+elif [ -f "$LEGACY_BACKUP" ]; then
+    # For legacy installations, we still use the old backup if it's the only one
+    BACKUP_TO_RESTORE="$LEGACY_BACKUP"
 fi
 
 # Helper: find next open TCP port starting at $1
@@ -287,19 +302,22 @@ echo "    Credentials OK."
 # Check if database already has data
 HAS_DATA=$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" flightconn-db mysql -uroot flightconn -sNe "SELECT COUNT(*) FROM airports;" 2>/dev/null || echo "0")
 
-if [ "$HAS_DATA" -eq "0" ]; then
+if [ "$HAS_DATA" -eq "0" ] && [ -n "$BACKUP_TO_RESTORE" ]; then
     # Restore database from backup
     echo ""
-    echo "==> Restoring database from api/Data/db_backup.sql.gz..."
-    gunzip -c "$BACKUP" \
+    echo "==> Restoring database from $(basename "$BACKUP_TO_RESTORE")..."
+    gunzip -c "$BACKUP_TO_RESTORE" \
       | docker exec -i \
           -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
           flightconn-db \
           mysql -uroot flightconn
     echo "    Restore complete."
-else
+elif [ "$HAS_DATA" -ne "0" ]; then
     echo ""
     echo "==> Database already contains data, skipping restore."
+else
+    echo ""
+    echo "==> No data found and no backup selected for restore. Continuing with empty database."
 fi
 
 # Verify row counts
@@ -368,15 +386,18 @@ if [ "$SWIM_READY" = "true" ]; then
     echo "  - SWIM Logs: docker compose logs -f swim-ingestor"
 fi
 echo ""
-echo "Useful commands:"
-echo "  ./update.sh          # Rebuild after code changes (auto-backups first)"
-echo "  ./backup.sh          # Create a manual DB backup"
-echo "  ./restore.sh <file>  # Restore a DB backup"
-echo "  docker compose logs -f"
-echo "  docker compose down"
-echo ""
+Useful commands:
+  ./update.sh          # Rebuild after code changes
+  ./backup.sh          # Refresh the repo baseline backup
+  docker compose logs -f
+  docker compose down
 
 # Offer to remove local source files (the running app and volumes are unaffected)
+echo ""
+log_warn "WARNING: Deleting local source files will make future updates difficult."
+log_warn "Future updates will require re-cloning the repository or restoring the deployment files."
+log_warn "The running containers and Docker volumes will remain unaffected."
+echo ""
 printf "Delete local source files now? [y/N] "
 DEL_CHOICE=""
 read -r DEL_CHOICE < /dev/tty || true
@@ -388,3 +409,4 @@ if [ "${DEL_CHOICE}" = "y" ] || [ "${DEL_CHOICE}" = "Y" ]; then
 else
     echo "    Source files preserved."
 fi
+
