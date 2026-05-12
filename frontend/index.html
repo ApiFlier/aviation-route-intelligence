@@ -173,9 +173,9 @@
         .ra-carrier-item { background: rgba(255,255,255,0.03); border-radius: 4px; padding: 8px; }
         .ra-carrier-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
         .ra-carrier-code { font-weight: 700; color: #00d9ff; font-size: 0.85rem; }
-        .ra-carrier-conf { font-size: 0.55rem; text-transform: uppercase; padding: 1px 4px; border-radius: 2px; font-weight: 600; }
-        .ra-carrier-conf.high { background: #00ff88; color: #1a1a2e; }
-        .ra-carrier-conf.medium { background: #ffeb3b; color: #1a1a2e; }
+        .ra-carrier-tag { font-size: 0.55rem; text-transform: uppercase; padding: 1px 4px; border-radius: 2px; font-weight: 600; }
+        .ra-carrier-tag.high { background: #00ff88; color: #1a1a2e; }
+        .ra-carrier-tag.medium { background: #ffeb3b; color: #1a1a2e; }
         .ra-carrier-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
         .ra-carrier-stat { font-size: 0.7rem; color: #aaa; }
         .ra-carrier-stat strong { color: #eee; }
@@ -448,7 +448,7 @@
                 html += `<div class="ra-carrier-item">`;
                 html += `<div class="ra-carrier-header">`;
                 html += `<span class="ra-carrier-code">${ca.carrier_code}</span>`;
-                html += `<span class="ra-carrier-conf" style="background:rgba(0,217,255,0.1);color:#00d9ff;border:1px solid rgba(0,217,255,0.2);">${ca.pattern_label}</span>`;
+                html += `<span class="ra-carrier-tag" style="background:rgba(0,217,255,0.1);color:#00d9ff;border:1px solid rgba(0,217,255,0.2);">${ca.pattern_label}</span>`;
                 html += `</div>`;
                 html += `<div class="ra-carrier-grid">`;
                 html += `<div class="ra-carrier-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
@@ -830,7 +830,47 @@
                     }
                 }
 
-                // ── 2. Fares ──────────────────────────────────────────────────
+                // ── 2. Recent Observed Activity (SWIM) ────────────────────────
+                const ra = carriersData.recent_activity_context;
+                if (ra && ra.available && ra.recent_carrier_patterns) {
+                    const pattern = ra.recent_carrier_patterns.find(p => p.carrier_code === carrierCode);
+                    if (pattern) {
+                        html += `<div class="section-header"><i class="fas fa-satellite-dish"></i> Estimated Recent Schedule</div>`;
+                        html += `<div class="ra-section" style="margin-top:0">`;
+                        html += `<div class="ra-header">`;
+                        html += `<div class="ra-title">${pattern.pattern_label}</div>`;
+                        html += `</div>`;
+                        html += `<div class="ra-stats">`;
+                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
+                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.coverage_days}d</span><span class="ra-stat-label">Coverage</span></div>`;
+                        html += `</div>`;
+                        
+                        if (pattern.patterns && pattern.patterns.length > 0) {
+                            html += `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">`;
+                            for (const p of pattern.patterns) {
+                                let icon = 'fa-clock';
+                                let color = '#00d9ff';
+                                if (p.status === 'watch') { icon = 'fa-eye'; color = '#ffeb3b'; }
+                                else if (p.status === 'stale') { icon = 'fa-exclamation-triangle'; color = '#ff9800'; }
+                                
+                                html += `<div class="pattern-item" style="border-left: 2px solid ${color}; padding-left: 10px; margin-bottom: 4px;">`;
+                                html += `<div style="font-size:0.85rem;color:#eee;font-weight:600;">${p.label}</div>`;
+                                html += `<div style="font-size:0.75rem;color:#ccc;"><i class="fas ${icon}" style="color:${color};margin-right:6px;font-size:0.65rem;"></i>${p.display_text}</div>`;
+                                html += `</div>`;
+                            }
+                            html += `</div>`;
+                        }
+
+                        if (pattern.last_observed_at) {
+                            html += `<div style="margin-top:10px;font-size:0.7rem;color:#888;"><i class="fas fa-history" style="margin-right:6px;"></i>Last observed: <strong>${pattern.last_observed_at}</strong></div>`;
+                        }
+
+                        html += `<div class="ra-disclaimer">Based on recent public SWIM/SCDS observations. Not official schedule data.</div>`;
+                        html += `</div>`;
+                    }
+                }
+
+                // ── 3. Fares ──────────────────────────────────────────────────
                 if (carrierFares.length > 0) {
                     html += `<div class="section-header"><i class="fas fa-dollar-sign"></i> Fares — Last ${carrierFares.length} Quarters</div>`;
 
@@ -984,46 +1024,6 @@
                         html += `</div>`;
                     }
                     html += `<div class="bts-note"><i class="fas fa-info-circle"></i> Based on historical BTS data. Actual schedules and fares may vary.</div>`;
-                }
-
-                // ── 8. Recent Observed Activity (SWIM) ────────────────────────
-                const ra = carriersData.recent_activity_context;
-                if (ra && ra.available && ra.recent_carrier_patterns) {
-                    const pattern = ra.recent_carrier_patterns.find(p => p.carrier_code === carrierCode);
-                    if (pattern) {
-                        html += `<div class="section-header"><i class="fas fa-satellite-dish"></i> Recently Observed Activity</div>`;
-                        html += `<div class="ra-section" style="margin-top:0">`;
-                        html += `<div class="ra-header">`;
-                        html += `<div class="ra-title">${pattern.pattern_label}</div>`;
-                        html += `</div>`;
-                        html += `<div class="ra-stats">`;
-                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
-                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.coverage_days}d</span><span class="ra-stat-label">Coverage</span></div>`;
-                        html += `</div>`;
-                        
-                        if (pattern.patterns && pattern.patterns.length > 0) {
-                            html += `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">`;
-                            for (const p of pattern.patterns) {
-                                let icon = 'fa-clock';
-                                let color = '#00d9ff';
-                                if (p.status === 'watch') { icon = 'fa-eye'; color = '#ffeb3b'; }
-                                else if (p.status === 'stale') { icon = 'fa-exclamation-triangle'; color = '#ff9800'; }
-                                
-                                html += `<div class="pattern-item" style="border-left: 2px solid ${color}; padding-left: 10px; margin-bottom: 4px;">`;
-                                html += `<div style="font-size:0.85rem;color:#eee;font-weight:600;">${p.label}</div>`;
-                                html += `<div style="font-size:0.75rem;color:#ccc;"><i class="fas ${icon}" style="color:${color};margin-right:6px;font-size:0.65rem;"></i>${p.display_text}</div>`;
-                                html += `</div>`;
-                            }
-                            html += `</div>`;
-                        }
-
-                        if (pattern.last_observed_at) {
-                            html += `<div style="margin-top:10px;font-size:0.7rem;color:#888;"><i class="fas fa-history" style="margin-right:6px;"></i>Last observed: <strong>${pattern.last_observed_at}</strong></div>`;
-                        }
-
-                        html += `<div class="ra-disclaimer">SWIM/SCDS recent activity is not for operational use and is not official schedule data.</div>`;
-                        html += `</div>`;
-                    }
                 }
 
                 const panel = document.getElementById('info-panel');

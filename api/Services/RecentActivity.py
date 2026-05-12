@@ -185,7 +185,10 @@ def get_route_recent_activity(origin, destination):
                     streak_text = " · Stale recent pattern"
                     label = "Stale"
 
-                obs_text = f" · Observed {total_obs} times" if total_obs > 0 else ""
+                obs_text = ""
+                if total_obs > 0:
+                    times_label = "time" if total_obs == 1 else "times"
+                    obs_text = f" · Observed {total_obs} {times_label}"
 
                 patterns.append({
                     "observed_weekday": day_full,
