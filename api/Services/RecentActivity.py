@@ -110,7 +110,7 @@ def get_route_recent_activity(origin, destination):
             # Match type determination
             match_type = 'historical_carrier_match' if crow.get('in_historical_data') else 'possible_recent_carrier_signal'
             
-            # Pattern label logic
+            # Pattern label logic (overall for the carrier)
             obs = crow['observation_count']
             cov = crow['coverage_days']
             
@@ -130,23 +130,82 @@ def get_route_recent_activity(origin, destination):
             patterns = []
             day_names = {"Mon": "Monday", "Tue": "Tuesday", "Wed": "Wednesday", "Thu": "Thursday", "Fri": "Friday", "Sat": "Saturday", "Sun": "Sunday"}
             
-            # Create pattern strings
-            # If patterns are missing, we just won't show them, but we still show the carrier.
-            sorted_days = sorted(days.items(), key=lambda x: x[1], reverse=True)
-            for day_code, count in sorted_days[:3]:
-                day_full = day_names.get(day_code, day_code)
-                top_window = windows[0]['window'] if windows else "various times"
+            # Create pattern strings using the new pattern memory tables
+            pattern_rows = db.execute("""
+                SELECT p.day_of_week, p.time_window, p.consecutive_weeks_seen, p.status,
+                       COALESCE(SUM(r.observation_count), 0) as total_obs
+                FROM recent_carrier_patterns p
+                LEFT JOIN recent_carrier_weekly_rollup r
+                  ON p.origin_iata = r.origin_iata AND p.dest_iata = r.dest_iata 
+                 AND p.carrier_code = r.carrier_code AND p.day_of_week = r.day_of_week 
+                 AND p.time_window = r.time_window
+                 AND r.week_start_date >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)
+                WHERE p.origin_iata = %s AND p.dest_iata = %s AND p.carrier_code = %s
+                  AND p.status IN ('active', 'watch', 'stale')
+                GROUP BY p.id
+                ORDER BY p.status = 'active' DESC, p.consecutive_weeks_seen DESC, total_obs DESC
+                LIMIT 3
+            """, (origin, destination, crow['carrier_code']))
+
+            highest_pattern_label = None
+
+            for prow in pattern_rows:
+                day_code = list(day_names.keys())[prow['day_of_week']]
+                day_full = day_names[day_code]
+                window = prow['time_window']
+                streak = prow['consecutive_weeks_seen']
+                status = prow['status']
+                total_obs = int(prow['total_obs'])
+                
+                # Tightened pattern semantic labeling
+                label = "Recently observed"
+                if status == 'active':
+                    if streak >= 4:
+                        label = "Consistent recent pattern"
+                    elif streak >= 2:
+                        label = "Early recent pattern"
+                    elif total_obs >= 2:
+                        label = "Early signal"
+                
+                # Track highest label for carrier-level summary
+                if highest_pattern_label != "Consistent recent pattern":
+                    if label == "Consistent recent pattern":
+                        highest_pattern_label = label
+                    elif label == "Early recent pattern" and highest_pattern_label != "Consistent recent pattern":
+                        highest_pattern_label = label
+                    elif label == "Early signal" and highest_pattern_label not in ("Consistent recent pattern", "Early recent pattern"):
+                        highest_pattern_label = label
+                    elif highest_pattern_label is None:
+                        highest_pattern_label = label
+
+                streak_text = ""
+                if status == 'active' and streak > 1:
+                    streak_text = f" · Seen {streak} weeks in a row"
+                elif status == 'watch':
+                    streak_text = " · Pattern not seen this week"
+                elif status == 'stale':
+                    streak_text = " · Stale recent pattern"
+
+                obs_text = f" · Observed {total_obs} times" if total_obs > 0 else ""
+
                 patterns.append({
                     "observed_weekday": day_full,
-                    "observed_time_window": top_window,
-                    "window_observation_count": count,
-                    "display_text": f"{day_full} around {top_window} · Observed {count} times"
+                    "observed_time_window": window,
+                    "window_observation_count": total_obs,
+                    "display_text": f"{day_full} around {window}{obs_text}{streak_text}",
+                    "streak_weeks": streak,
+                    "status": status,
+                    "label": label
                 })
+
+            # Use highest pattern label as the overall label if available
+            if highest_pattern_label:
+                pattern_label = highest_pattern_label
 
             res['recent_carrier_patterns'].append({
                 "carrier_code": crow['carrier_code'],
                 "carrier_name": crow['carrier_name'],
-                "marketing_carrier_name": None, # Simplified for now
+                "marketing_carrier_name": None, 
                 "match_type": match_type,
                 "observation_count": obs,
                 "coverage_days": cov,

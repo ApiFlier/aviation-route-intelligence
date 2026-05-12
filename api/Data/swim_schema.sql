@@ -257,3 +257,52 @@ CREATE TABLE IF NOT EXISTS route_historical_recent_comparison (
     INDEX idx_origin            (origin_iata),
     INDEX idx_computed          (computed_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Layer 3: Long-Lived Pattern Memory
+--
+-- These tables store lightweight aggregated pattern history.
+-- They allow the app to show "Seen 6 weeks in a row" even after the
+-- raw observed_flights for those weeks have been purged.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Weekly rollups of carrier activity by route, day, and time window.
+-- week_start_date is always the Monday of that week.
+CREATE TABLE IF NOT EXISTS recent_carrier_weekly_rollup (
+    id                     INT UNSIGNED    NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    origin_iata            VARCHAR(4)      NOT NULL,
+    dest_iata              VARCHAR(4)      NOT NULL,
+    carrier_code           VARCHAR(10)     NOT NULL,
+    day_of_week            TINYINT UNSIGNED NOT NULL, -- 0 (Mon) to 6 (Sun)
+    time_window            VARCHAR(10)     NOT NULL, -- e.g. "06-09", "12-15"
+    week_start_date        DATE            NOT NULL,
+    observation_count      INT UNSIGNED    NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_rollup (origin_iata, dest_iata, carrier_code, day_of_week, time_window, week_start_date),
+    INDEX idx_week (week_start_date),
+    INDEX idx_route (origin_iata, dest_iata)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Active and historical pattern streaks.
+-- Tracks how many consecutive weeks a specific day/time window has been seen.
+CREATE TABLE IF NOT EXISTS recent_carrier_patterns (
+    id                     INT UNSIGNED    NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    origin_iata            VARCHAR(4)      NOT NULL,
+    dest_iata              VARCHAR(4)      NOT NULL,
+    carrier_code           VARCHAR(10)     NOT NULL,
+    day_of_week            TINYINT UNSIGNED NOT NULL,
+    time_window            VARCHAR(10)     NOT NULL,
+    consecutive_weeks_seen INT UNSIGNED    NOT NULL DEFAULT 0,
+    missed_weeks           INT UNSIGNED    NOT NULL DEFAULT 0,
+    first_seen_at          DATETIME        NOT NULL,
+    last_observed_at       DATETIME,
+    last_streak_week       DATE,
+    status                 ENUM('active', 'watch', 'stale', 'inactive') 
+                               NOT NULL DEFAULT 'active',
+    computed_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP 
+                               ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_pattern (origin_iata, dest_iata, carrier_code, day_of_week, time_window),
+    INDEX idx_status (status),
+    INDEX idx_route_carrier (origin_iata, dest_iata, carrier_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+

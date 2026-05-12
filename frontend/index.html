@@ -987,10 +987,10 @@
                 if (ra && ra.available && ra.recent_carrier_patterns) {
                     const pattern = ra.recent_carrier_patterns.find(p => p.carrier_code === carrierCode);
                     if (pattern) {
-                        html += `<div class="section-header"><i class="fas fa-satellite-dish"></i> ${pattern.pattern_label}</div>`;
+                        html += `<div class="section-header"><i class="fas fa-satellite-dish"></i> Recently Observed Activity</div>`;
                         html += `<div class="ra-section" style="margin-top:0">`;
                         html += `<div class="ra-header">`;
-                        html += `<div class="ra-title">Recent Observed Schedule Pattern</div>`;
+                        html += `<div class="ra-title">${pattern.pattern_label}</div>`;
                         html += `</div>`;
                         html += `<div class="ra-stats">`;
                         html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
@@ -998,9 +998,17 @@
                         html += `</div>`;
                         
                         if (pattern.patterns && pattern.patterns.length > 0) {
-                            html += `<div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">`;
+                            html += `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">`;
                             for (const p of pattern.patterns) {
-                                html += `<div style="font-size:0.8rem;color:#eee;"><i class="fas fa-clock" style="color:#00d9ff;margin-right:8px;font-size:0.7rem;"></i>${p.display_text}</div>`;
+                                let icon = 'fa-clock';
+                                let color = '#00d9ff';
+                                if (p.status === 'watch') { icon = 'fa-eye'; color = '#ffeb3b'; }
+                                else if (p.status === 'stale') { icon = 'fa-exclamation-triangle'; color = '#ff9800'; }
+                                
+                                html += `<div class="pattern-item" style="border-left: 2px solid ${color}; padding-left: 10px; margin-bottom: 4px;">`;
+                                html += `<div style="font-size:0.85rem;color:#eee;font-weight:600;">${p.label}</div>`;
+                                html += `<div style="font-size:0.75rem;color:#ccc;"><i class="fas ${icon}" style="color:${color};margin-right:6px;font-size:0.65rem;"></i>${p.display_text}</div>`;
+                                html += `</div>`;
                             }
                             html += `</div>`;
                         }

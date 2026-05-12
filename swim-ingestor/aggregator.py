@@ -231,13 +231,44 @@ def aggregate_recent_route_carrier_activity(lookback_days: int = 30) -> int:
             if obs_count < 2:
                 classification = 'insufficient_data'
 
+            # Get common days for this carrier/route
+            with conn.cursor() as cur_days:
+                cur_days.execute("""
+                    SELECT WEEKDAY(sched_dep_utc) as dow, COUNT(*) as c
+                    FROM observed_flights
+                    WHERE origin_iata = %s AND dest_iata = %s AND carrier_code = %s
+                      AND sched_dep_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
+                    GROUP BY dow
+                """, (origin_iata, dest_iata, carrier_code, lookback_days))
+                days_res = cur_days.fetchall()
+                day_map = {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][r[0]]: r[1] for r in days_res}
+                common_days_json = json.dumps(day_map)
+
+            # Get common windows for this carrier/route
+            with conn.cursor() as cur_win:
+                cur_win.execute("""
+                    SELECT 
+                        CONCAT(LPAD(FLOOR(HOUR(sched_dep_utc)/3)*3, 2, '0'), '-', 
+                               LPAD(IF(FLOOR(HOUR(sched_dep_utc)/3)*3+3=24, 0, FLOOR(HOUR(sched_dep_utc)/3)*3+3), 2, '0')) as `window`,
+                        COUNT(*) as c
+                    FROM observed_flights
+                    WHERE origin_iata = %s AND dest_iata = %s AND carrier_code = %s
+                      AND sched_dep_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
+                    GROUP BY `window`
+                    ORDER BY c DESC
+                """, (origin_iata, dest_iata, carrier_code, lookback_days))
+                win_res = cur_win.fetchall()
+                win_list = [{"window": r[0], "count": r[1]} for r in win_res]
+                common_windows_json = json.dumps(win_list)
+
             upsert_sql = """
                 INSERT INTO recent_route_carrier_activity (
                     origin_iata, dest_iata, carrier_code, coverage_start_date, coverage_end_date, 
                     coverage_days, observation_count, last_observed_at, 
-                    activity_classification, commercial_confidence, computed_at
+                    activity_classification, commercial_confidence, 
+                    common_dep_days, common_dep_windows, computed_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()
                 ) ON DUPLICATE KEY UPDATE
                     coverage_start_date = VALUES(coverage_start_date),
                     coverage_end_date = VALUES(coverage_end_date),
@@ -246,12 +277,15 @@ def aggregate_recent_route_carrier_activity(lookback_days: int = 30) -> int:
                     last_observed_at = VALUES(last_observed_at),
                     activity_classification = VALUES(activity_classification),
                     commercial_confidence = VALUES(commercial_confidence),
+                    common_dep_days = VALUES(common_dep_days),
+                    common_dep_windows = VALUES(common_dep_windows),
                     computed_at = UTC_TIMESTAMP()
             """
             with conn.cursor() as cur_upsert:
                 cur_upsert.execute(upsert_sql, (
                     origin_iata, dest_iata, carrier_code, start_date, end_date, 
-                    coverage_days, obs_count, last_obs, classification, commercial_confidence
+                    coverage_days, obs_count, last_obs, classification, commercial_confidence,
+                    common_days_json, common_windows_json
                 ))
             updated_rows += 1
             
@@ -354,13 +388,173 @@ def aggregate_historical_recent_comparison(lookback_days: int = 30) -> int:
         conn.close()
     return updated_rows
 
+def aggregate_carrier_weekly_rollups() -> int:
+    """
+    Roll up observed_flights into weekly buckets (carrier, route, day, window, week).
+    Uses 3-hour time windows.
+    Prioritizes actual_dep_utc, then sched_dep_utc.
+    Filters for route-ready commercial signals only.
+    """
+    log.info("Aggregating carrier_weekly_rollups")
+    conn = get_connection()
+    try:
+        # MySQL WEEK(date, 1) starts Monday.
+        # DATE_SUB(date, INTERVAL WEEKDAY(date) DAY) gives Monday of the week.
+        sql = """
+            INSERT INTO recent_carrier_weekly_rollup (
+                origin_iata, dest_iata, carrier_code, day_of_week, time_window, week_start_date, observation_count
+            )
+            SELECT 
+                o.origin_iata, 
+                o.dest_iata, 
+                o.carrier_code, 
+                WEEKDAY(COALESCE(o.actual_dep_utc, o.sched_dep_utc)) as day_of_week,
+                CONCAT(LPAD(FLOOR(HOUR(COALESCE(o.actual_dep_utc, o.sched_dep_utc))/3)*3, 2, '0'), '-', 
+                       LPAD(IF(FLOOR(HOUR(COALESCE(o.actual_dep_utc, o.sched_dep_utc))/3)*3+3=24, 0, FLOOR(HOUR(COALESCE(o.actual_dep_utc, o.sched_dep_utc))/3)*3+3), 2, '0')) as `window`,
+                DATE(DATE_SUB(COALESCE(o.actual_dep_utc, o.sched_dep_utc), INTERVAL WEEKDAY(COALESCE(o.actual_dep_utc, o.sched_dep_utc)) DAY)) as week_start_date,
+                COUNT(DISTINCT o.source_flight_id) as observation_count
+            FROM observed_flights o
+            LEFT JOIN observed_flight_enrichment e ON o.source_flight_id = e.source_flight_id
+            WHERE o.origin_iata IS NOT NULL AND o.dest_iata IS NOT NULL 
+              AND o.carrier_code IS NOT NULL AND o.carrier_code NOT IN ('', 'XXX', 'UNK', 'UNKNOWN', 'UNKN')
+              AND (o.actual_dep_utc IS NOT NULL OR o.sched_dep_utc IS NOT NULL)
+              -- Exclude GA/Private tail number patterns
+              AND o.callsign NOT REGEXP '^N[1-9][0-9]{0,4}[A-Z]{0,2}$'
+              -- Prefer commercial signals
+              AND (e.user_category = 'COMMERCIAL' OR e.flight_type = 'SCHEDULED' OR e.operating_carrier_code IS NOT NULL)
+              -- Process current and previous week to ensure continuity
+              AND COALESCE(o.actual_dep_utc, o.sched_dep_utc) >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)
+            GROUP BY o.origin_iata, o.dest_iata, o.carrier_code, day_of_week, `window`, week_start_date
+            ON DUPLICATE KEY UPDATE
+                observation_count = VALUES(observation_count)
+        """
+        with conn.cursor() as cur_upd:
+            cur_upd.execute(sql)
+            count = cur_upd.rowcount
+        conn.commit()
+        return count
+    except Exception as e:
+        conn.rollback()
+        log.error("Failed to aggregate weekly rollups: %s", e)
+        return 0
+    finally:
+        conn.close()
+
+def cleanup_pattern_memory(rollup_retention_weeks: int = 52, pattern_stale_weeks: int = 8) -> dict:
+    """
+    Bound the growth of pattern memory tables.
+    """
+    log.info("Cleaning up pattern memory (rollups: %d weeks, stale patterns: %d weeks)", 
+             rollup_retention_weeks, pattern_stale_weeks)
+    conn = get_connection()
+    results = {'rollups_deleted': 0, 'patterns_deleted': 0}
+    try:
+        with conn.cursor() as cur:
+            # 1. Delete old weekly rollups
+            cur.execute("""
+                DELETE FROM recent_carrier_weekly_rollup 
+                WHERE week_start_date < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s WEEK)
+            """, (rollup_retention_weeks,))
+            results['rollups_deleted'] = cur.rowcount
+
+            # 2. Delete inactive patterns that haven't been seen in a long time
+            cur.execute("""
+                DELETE FROM recent_carrier_patterns 
+                WHERE status = 'inactive' AND last_observed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s WEEK)
+            """, (pattern_stale_weeks,))
+            results['patterns_deleted'] = cur.rowcount
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log.error("Failed to cleanup pattern memory: %s", e)
+    finally:
+        conn.close()
+    return results
+
+def update_carrier_patterns() -> int:
+    """
+    Update streaks and statuses in recent_carrier_patterns based on rollups.
+    """
+    log.info("Updating carrier_patterns streaks and statuses")
+    conn = get_connection()
+    updated = 0
+    try:
+        # Current Monday (UTC)
+        now_utc = datetime.now(timezone.utc)
+        curr_monday = (now_utc - timedelta(days=now_utc.weekday())).date()
+        prev_monday = curr_monday - timedelta(days=7)
+
+        # 1. Update patterns for current and previous weeks found in rollups
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT origin_iata, dest_iata, carrier_code, day_of_week, time_window, week_start_date, observation_count
+                FROM recent_carrier_weekly_rollup
+                WHERE week_start_date IN (%s, %s)
+            """, (curr_monday, prev_monday))
+            rollups = cur.fetchall()
+
+        for row in rollups:
+            origin, dest, carrier, dow, window, week_start, count = row
+            
+            # Upsert pattern with streak logic
+            sql = """
+                INSERT INTO recent_carrier_patterns (
+                    origin_iata, dest_iata, carrier_code, day_of_week, time_window,
+                    consecutive_weeks_seen, missed_weeks, first_seen_at, last_observed_at, last_streak_week, status
+                ) VALUES (
+                    %s, %s, %s, %s, %s, 1, 0, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s, 'active'
+                ) ON DUPLICATE KEY UPDATE
+                    consecutive_weeks_seen = CASE
+                        WHEN last_streak_week = DATE_SUB(%s, INTERVAL 7 DAY) THEN consecutive_weeks_seen + 1
+                        WHEN last_streak_week = %s THEN consecutive_weeks_seen
+                        ELSE 1
+                    END,
+                    last_streak_week = %s,
+                    last_observed_at = GREATEST(COALESCE(last_observed_at, '1970-01-01'), UTC_TIMESTAMP()),
+                    missed_weeks = 0,
+                    status = 'active'
+            """
+            with conn.cursor() as cur_upd:
+                cur_upd.execute(sql, (origin, dest, carrier, dow, window, week_start, week_start, week_start, week_start))
+            updated += 1
+
+        # 2. Update statuses for patterns NOT seen recently
+        sql_status = """
+            UPDATE recent_carrier_patterns
+            SET 
+                missed_weeks = FLOOR(DATEDIFF(%s, last_streak_week) / 7),
+                status = CASE
+                    WHEN DATEDIFF(%s, last_streak_week) <= 7 THEN 'active'
+                    WHEN DATEDIFF(%s, last_streak_week) = 14 THEN 'watch'
+                    WHEN DATEDIFF(%s, last_streak_week) = 21 THEN 'stale'
+                    ELSE 'inactive'
+                END
+            WHERE last_streak_week < %s
+        """
+        with conn.cursor() as cur_status:
+            cur_status.execute(sql_status, (curr_monday, curr_monday, curr_monday, curr_monday, curr_monday))
+            updated += cur_status.rowcount
+            
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log.error("Failed to update carrier patterns: %s", e)
+    finally:
+        conn.close()
+    return updated
+
 def run_all_aggregations(lookback_days: int = 30):
     log.info("Starting run_all_aggregations (lookback: %d days)", lookback_days)
     a1 = aggregate_recent_route_activity(lookback_days)
     a2 = aggregate_recent_route_carrier_activity(lookback_days)
     a3 = aggregate_historical_recent_comparison(lookback_days)
-    log.info("Aggregations completed. recent_route_activity=%d, recent_route_carrier_activity=%d, comparisons=%d", a1, a2, a3)
-    return a1, a2, a3
+    a4 = aggregate_carrier_weekly_rollups()
+    a5 = update_carrier_patterns()
+    a6 = cleanup_pattern_memory()
+    log.info("Aggregations completed. activity=%d, carriers=%d, comps=%d, rollups=%d, patterns=%d, cleanup=%s", 
+             a1, a2, a3, a4, a5, a6)
+    return a1, a2, a3, a4, a5, a6
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s %(message)s')

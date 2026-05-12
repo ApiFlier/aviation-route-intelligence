@@ -187,4 +187,38 @@ run_query "SELECT origin_iata, dest_iata, carrier_code, COUNT(*) as obs_count FR
 done
 
 echo ""
+echo "--- Pattern & Streak Memory ---"
+rollup_count=$(run_query "SELECT COUNT(*) FROM recent_carrier_weekly_rollup;")
+pattern_count=$(run_query "SELECT COUNT(*) FROM recent_carrier_patterns;")
+
+recently_obs=$(run_query "SELECT COUNT(*) FROM recent_carrier_patterns WHERE status = 'active' AND consecutive_weeks_seen < 2 AND id NOT IN (SELECT p2.id FROM recent_carrier_patterns p2 JOIN recent_carrier_weekly_rollup r ON p2.origin_iata=r.origin_iata AND p2.dest_iata=r.dest_iata AND p2.carrier_code=r.carrier_code AND p2.day_of_week=r.day_of_week AND p2.time_window=r.time_window WHERE r.observation_count >= 2);")
+
+# This query is a bit complex, let's simplify by using the labels logic if possible, 
+# but since it's SQL, we'll do it by thresholds.
+# Early Signal: Active, streak < 2, but has a rollup with obs >= 2 in last 30 days
+early_signal=$(run_query "SELECT COUNT(DISTINCT p.id) FROM recent_carrier_patterns p JOIN recent_carrier_weekly_rollup r ON p.origin_iata=r.origin_iata AND p.dest_iata=r.dest_iata AND p.carrier_code=r.carrier_code AND p.day_of_week=r.day_of_week AND p.time_window=r.time_window WHERE p.status = 'active' AND p.consecutive_weeks_seen < 2 AND r.observation_count >= 2 AND r.week_start_date >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY);")
+
+early_pattern=$(run_query "SELECT COUNT(*) FROM recent_carrier_patterns WHERE status = 'active' AND consecutive_weeks_seen >= 2 AND consecutive_weeks_seen < 4;")
+consistent_pattern=$(run_query "SELECT COUNT(*) FROM recent_carrier_patterns WHERE status = 'active' AND consecutive_weeks_seen >= 4;")
+
+watch_patterns=$(run_query "SELECT COUNT(*) FROM recent_carrier_patterns WHERE status = 'watch';")
+stale_patterns=$(run_query "SELECT COUNT(*) FROM recent_carrier_patterns WHERE status = 'stale';")
+inactive_patterns=$(run_query "SELECT COUNT(*) FROM recent_carrier_patterns WHERE status = 'inactive';")
+
+streak_max=$(run_query "SELECT MAX(consecutive_weeks_seen) FROM recent_carrier_patterns WHERE status = 'active';")
+promoted_ui=$(run_query "SELECT COUNT(*) FROM recent_carrier_patterns WHERE status IN ('active', 'watch', 'stale');")
+
+echo "Weekly rollups stored:       $rollup_count"
+echo "Total patterns tracked:      $pattern_count"
+echo "Recently observed only:      $recently_obs"
+echo "Early signals (multi-obs):   $early_signal"
+echo "Early recent patterns (2w+): $early_pattern"
+echo "Consistent patterns (4w+):   $consistent_pattern"
+echo "Watch patterns (missed 1w):  $watch_patterns"
+echo "Stale patterns (missed 2w):  $stale_patterns"
+echo "Inactive patterns (missed 3+): $inactive_patterns"
+echo "Patterns promoted to UI:     $promoted_ui"
+echo "Longest active streak:       ${streak_max:-0} weeks"
+echo ""
+
 echo "Done."
