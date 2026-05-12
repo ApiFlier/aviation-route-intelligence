@@ -289,6 +289,13 @@ Available at `/recent-activity-health/` (also reachable via `/status/`), the Sys
 
 **Note:** The health dashboard shows system throughput and data maturity indicators. It is not a live flight tracking interface.
 
+### Route Opportunity Finder & Recent Activity
+
+The **Route Opportunity Finder** now includes recent activity context as advisory supporting data.
+- **Supporting Context**: Informational badges and detail sections indicate whether a route has recently observed historical carrier activity or possible new carrier signals.
+- **Historical Primary**: Historical/public route data remains the primary basis for all opportunity scores. Recent activity is currently non-scoring and provided for context only.
+- **Advisory Only**: Like all recent data in FlightConn, these signals are derived from public SWIM/SCDS observations and do not represent official airline schedules or confirmed new routes.
+
 ### Advisory Nature of Recent Data
 
 **Disclaimer:** All recent activity data shown in FlightConn is **advisory only** and **NOT for OPERATIONAL USE.**

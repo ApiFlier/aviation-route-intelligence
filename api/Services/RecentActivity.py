@@ -472,7 +472,7 @@ def get_opportunity_recent_activity(origin, destination):
     db = get_db()
     try:
         row = db.execute_one("""
-            SELECT observation_count, display_mode, confidence, activity_classification
+            SELECT observation_count, coverage_days, display_mode, confidence, activity_classification, last_observed_at
             FROM recent_route_activity
             WHERE origin_iata = %s AND dest_iata = %s
         """, (origin, destination))
@@ -489,28 +489,67 @@ def get_opportunity_recent_activity(origin, destination):
         LIMIT 1
     """, (origin, destination))
 
+    # Pre-fetch historical carrier codes and alias map
+    try:
+        hist_rows = db.execute("""
+            SELECT carrier_code FROM route_historical_recent_comparison
+            WHERE origin_iata=%s AND dest_iata=%s AND in_historical_data=1
+        """, (origin, destination))
+        historical_codes = {r['carrier_code'] for r in hist_rows}
+    except Exception:
+        historical_codes = set()
+
+    alias_map = get_alias_map(db)
+
     res = {
         "available": True,
         "display_mode": row['display_mode'],
         "data_signal": row['confidence'],
         "activity_classification": row['activity_classification'],
         "observation_count": row['observation_count'],
+        "coverage_days": row['coverage_days'],
+        "last_observed_at": row['last_observed_at'].isoformat() + " UTC" if row['last_observed_at'] else None,
         "carrier_mismatch": bool(mismatch),
-        "carrier_activity": []
+        "matched_historical_carriers": [],
+        "possible_recent_carrier_signals": [],
+        "carrier_activity": [] # Legacy support
     }
 
     # Fetch carrier-level activity
     try:
         carrier_rows = db.execute("""
-            SELECT carrier_code, observation_count, avg_dep_delay_mins, avg_arr_delay_mins, cancel_count, commercial_confidence
+            SELECT carrier_code, observation_count, coverage_days, avg_dep_delay_mins, avg_arr_delay_mins, cancel_count, commercial_confidence, last_observed_at
             FROM recent_route_carrier_activity
             WHERE origin_iata = %s AND dest_iata = %s
         """, (origin, destination))
-        
+
         for crow in carrier_rows:
+            raw_code = crow['carrier_code']
+            canonical_code = raw_code
+            carrier_name = None
+            if raw_code in alias_map:
+                canonical_code, carrier_name = alias_map[raw_code]
+
+            # Categorize
+            c_data = {
+                "carrier_code": canonical_code,
+                "carrier_name": carrier_name,
+                "observed_as": raw_code if raw_code != canonical_code else None,
+                "observation_count": crow['observation_count'],
+                "coverage_days": crow['coverage_days'],
+                "last_observed_at": crow['last_observed_at'].isoformat() + " UTC" if crow['last_observed_at'] else None,
+                "commercial_confidence": crow['commercial_confidence']
+            }
+
+            if canonical_code in historical_codes:
+                res['matched_historical_carriers'].append(c_data)
+            elif crow['commercial_confidence'] in ('medium', 'high'):
+                res['possible_recent_carrier_signals'].append(c_data)
+
+            # Legacy support
             if crow['commercial_confidence'] in ('medium', 'high'):
                 res['carrier_activity'].append({
-                    "carrier_code": crow['carrier_code'],
+                    "carrier_code": canonical_code,
                     "observation_count": crow['observation_count'],
                     "avg_observed_arr_variance_mins": float(crow['avg_arr_delay_mins']) if crow['avg_arr_delay_mins'] is not None else None,
                     "commercial_confidence": crow['commercial_confidence']
@@ -519,7 +558,6 @@ def get_opportunity_recent_activity(origin, destination):
         log.warning("Could not fetch carrier activity for opportunities: %s", e)
 
     return res
-
 def get_recent_activity_status():
     """
     Get system-wide status of SWIM ingestion and aggregation.

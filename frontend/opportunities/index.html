@@ -947,20 +947,34 @@ function renderResults(routes) {
 
 function getRecentBadge(ra) {
     if (!ra || !ra.available) return '';
+
+    let label = 'Recent Activity Observed';
+    const mode = ra.display_mode || 'historical_only';
     
-    let label = 'Recent Activity';
-    let mode = ra.display_mode || 'historical_only';
-    
-    if (mode === 'early_recent_signal') label = 'Early Recent Signal';
-    else if (mode === 'blend_recent_and_historical') label = 'Recent Activity Verified';
-    else if (mode === 'recent_activity_primary') label = 'Strong Recent Signal';
-    else if (mode === 'historical_only') label = 'Historical Data Primary';
+    const obs = ra.observation_count || 0;
+    const days = ra.coverage_days || 0;
+    const stats = `${obs} obs · ${days} day${days !== 1 ? 's' : ''}`;
 
     if (ra.carrier_mismatch) {
         return `<span class="recent-activity-badge mismatch"><i class="fas fa-exclamation-triangle"></i> Carrier Change Signal</span>`;
     }
 
-    return `<span class="recent-activity-badge ${mode}"><i class="fas fa-history"></i> ${label}</span>`;
+    let subLabel = '';
+    const hasHist = ra.matched_historical_carriers && ra.matched_historical_carriers.length > 0;
+    const hasNew = ra.possible_recent_carrier_signals && ra.possible_recent_carrier_signals.length > 0;
+
+    if (hasHist && hasNew) subLabel = 'Match + New Signals';
+    else if (hasHist) subLabel = 'Historical Carrier Observed';
+    else if (hasNew) subLabel = 'Possible Carrier Activity';
+
+    return `
+        <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;">
+            <div class="recent-activity-badge ${mode}"><i class="fas fa-history"></i> ${label}</div>
+            <div style="font-size:0.65rem;color:#666;margin-left:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;">
+                ${subLabel ? subLabel + ' · ' : ''}${stats}
+            </div>
+        </div>
+    `;
 }
 
 function buildCard(r, idx) {
@@ -1087,24 +1101,52 @@ function buildCard(r, idx) {
     // ── Expandable details ────────────────────────────────────────────
     html += `<div class="card-details">`;
 
-    if (recent && recent.available && recent.carrier_activity && recent.carrier_activity.length > 0) {
+    if (recent && recent.available) {
         html += `<details class="detail-section">`;
-        html += `<summary><i class="fas fa-history" style="color:#00d9ff"></i> Recent Observed Activity (SWIM/SCDS)<i class="fas fa-chevron-down toggle-icon"></i></summary>`;
+        html += `<summary><i class="fas fa-history" style="color:#00d9ff"></i> Recent Activity Context (SWIM/SCDS)<i class="fas fa-chevron-down toggle-icon"></i></summary>`;
         html += `<div class="detail-body">`;
+        
+        if (recent.last_observed_at) {
+            html += `<div style="font-size:0.75rem;color:#888;margin-bottom:12px;">Latest observation: <strong>${new Date(recent.last_observed_at).toLocaleDateString()}</strong></div>`;
+        }
+
         html += `<div class="ra-detail-grid">`;
-        recent.carrier_activity.forEach(ca => {
+        
+        // Historical carriers
+        (recent.matched_historical_carriers || []).forEach(ca => {
+            const observedAs = ca.observed_as ? ` <span style="color:#666;font-size:0.7rem;">(as ${ca.observed_as})</span>` : '';
             html += `<div class="ra-detail-item">`;
             html += `<div class="ra-detail-header">`;
-            html += `<span class="ra-detail-code">${esc(ca.carrier_code)}</span>`;
+            html += `<span class="ra-detail-code">${esc(ca.carrier_code)}${observedAs}</span>`;
+            html += `<span class="ra-detail-conf high">Historical Match</span>`;
             html += `</div>`;
             html += `<div class="ra-detail-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
-            if (ca.avg_observed_arr_variance_mins !== null) {
-                html += `<div class="ra-detail-stat"><i class="fas fa-plane-arrival"></i> Obs. Arr Var: <strong>${ca.avg_observed_arr_variance_mins.toFixed(0)}m</strong></div>`;
-            }
+            html += `<div class="ra-detail-stat"><i class="fas fa-calendar-day"></i> Coverage: <strong>${ca.coverage_days} day${ca.coverage_days !== 1 ? 's' : ''}</strong></div>`;
             html += `</div>`;
         });
+
+        // New signals
+        (recent.possible_recent_carrier_signals || []).forEach(ca => {
+            html += `<div class="ra-detail-item" style="border-color:#ff9800;">`;
+            html += `<div class="ra-detail-header">`;
+            html += `<span class="ra-detail-code">${esc(ca.carrier_code)}</span>`;
+            html += `<span class="ra-detail-conf medium">Possible Signal</span>`;
+            html += `</div>`;
+            html += `<div class="ra-detail-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
+            html += `<div class="ra-detail-stat"><i class="fas fa-calendar-day"></i> Coverage: <strong>${ca.coverage_days} day${ca.coverage_days !== 1 ? 's' : ''}</strong></div>`;
+            html += `</div>`;
+        });
+        
         html += `</div>`;
-        html += `<div class="ra-disclaimer">SWIM/SCDS recent activity is not for operational use and is not official schedule data.</div>`;
+        html += `<div class="ra-disclaimer">Recent activity is advisory supporting context only. Derived from public SWIM/SCDS observations. Not official schedule data.</div>`;
+        html += `</div></details>`;
+    } else if (score >= 60) {
+        // Subtle note for high-scoring opportunities with no recent activity
+        html += `<details class="detail-section">`;
+        html += `<summary><i class="fas fa-history" style="color:#555"></i> Recent Activity Context<i class="fas fa-chevron-down toggle-icon"></i></summary>`;
+        html += `<div class="detail-body">`;
+        html += `<div style="font-size:0.8rem;color:#888;font-style:italic;">No recent observed activity in the current window.</div>`;
+        html += `<div class="ra-disclaimer" style="margin-top:8px;">Missing recent observations do not confirm absence of service.</div>`;
         html += `</div></details>`;
     }
 
