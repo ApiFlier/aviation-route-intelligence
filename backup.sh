@@ -49,7 +49,7 @@ EXCLUDE_DATA_TABLES=(
 log_info "Refreshing baseline backup: $BASELINE_PATH"
 
 # 1. Verify DB container is running
-if ! docker inspect -f '{{.State.Running}}' flightconn-db >/dev/null 2>&1; then
+if [ "$(docker inspect -f '{{.State.Running}}' flightconn-db 2>/dev/null || echo false)" != "true" ]; then
     log_error "flightconn-db container is not running."
     exit 1
 fi
@@ -68,12 +68,17 @@ if [ "$DRY_RUN" = "true" ]; then
     done
     echo "docker exec flightconn-db sh -lc 'mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" \"\$MYSQL_DATABASE\" $IGNORE_OPTS' > TEMP_DUMP"
     echo "docker exec flightconn-db sh -lc 'mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" --no-data \"\$MYSQL_DATABASE\" ${EXCLUDE_DATA_TABLES[*]}' >> TEMP_DUMP"
-    echo "gzip -c TEMP_DUMP > $BASELINE_PATH"
+    echo "gzip -c TEMP_DUMP > TEMP_GZ"
+    echo "mv TEMP_GZ $BASELINE_PATH"
     exit 0
 fi
 
-# Create a temporary file for the dump
+# Create temporary files for the dump and compression
 TEMP_DUMP=$(mktemp)
+TEMP_GZ=$(mktemp)
+
+# Ensure temp files are removed on exit
+trap 'rm -f "$TEMP_DUMP" "$TEMP_GZ"' EXIT
 
 # Pass 1: Dump all tables EXCEPT the excluded ones
 IGNORE_OPTS=""
@@ -85,32 +90,30 @@ log_info "Dumping core data..."
 # shellcheck disable=SC2086
 if ! docker exec flightconn-db sh -lc "mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" \"\$MYSQL_DATABASE\" $IGNORE_OPTS" > "$TEMP_DUMP"; then
     log_error "Core data dump failed."
-    rm -f "$TEMP_DUMP"
     exit 1
 fi
 
 # Pass 2: Dump ONLY the schema for the excluded tables
 log_info "Dumping SWIM runtime schemas (no data)..."
-# We wrap this in a subshell inside the container to handle missing tables gracefully if needed,
-# though mysqldump will just error if a table is missing.
 if ! docker exec flightconn-db sh -lc "mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" --no-data \"\$MYSQL_DATABASE\" ${EXCLUDE_DATA_TABLES[*]}" >> "$TEMP_DUMP"; then
-    log_warn "Schema-only dump encountered an error. Some SWIM tables may be missing from the schema."
+    log_warn "Schema-only dump failed for one or more runtime tables. The baseline backup was created, but runtime table schemas may be incomplete."
     # We continue anyway if core data was successful
 fi
 
-# Compress and move to baseline path
+# Compress to temp file
 log_info "Compressing..."
-if ! gzip -c "$TEMP_DUMP" > "$BASELINE_PATH"; then
+if ! gzip -c "$TEMP_DUMP" > "$TEMP_GZ"; then
     log_error "Compression failed."
-    rm -f "$TEMP_DUMP"
     exit 1
 fi
-rm -f "$TEMP_DUMP"
 
-if [ ! -s "$BASELINE_PATH" ]; then
+if [ ! -s "$TEMP_GZ" ]; then
     log_error "Generated backup file is empty!"
     exit 1
 fi
+
+# Move to baseline path
+mv "$TEMP_GZ" "$BASELINE_PATH"
 
 log_info "Baseline backup refreshed successfully: $(du -h "$BASELINE_PATH" | cut -f1)"
 
