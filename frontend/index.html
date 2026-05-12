@@ -450,6 +450,7 @@
                 html += `<div class="ra-carrier-item">`;
                 html += `<div class="ra-carrier-header">`;
                 html += `<span class="ra-carrier-code">${ca.carrier_code}</span>`;
+                if (ca.carrier_name) html += `<span style="font-size:0.75rem;color:#ccc;margin-left:6px;">${ca.carrier_name}</span>`;
                 html += `<span class="ra-carrier-tag" style="background:rgba(0,217,255,0.1);color:#00d9ff;border:1px solid rgba(0,217,255,0.2);">${ca.pattern_label}</span>`;
                 html += `</div>`;
                 html += `<div class="ra-carrier-grid">`;
@@ -803,6 +804,7 @@
                         html += `<div class="ra-section" style="margin-top:0; border-top:none; border-top-left-radius:0; border-top-right-radius:0;">`;
                         html += `<div class="ra-header">`;
                         html += `<div class="ra-title" style="color:#555;">Status: <span style="color:#888;">${pattern.pattern_label}</span></div>`;
+                        if (pattern.observed_as) html += `<div style="font-size:0.68rem;color:#555;margin-top:3px;"><i class="fas fa-tag" style="margin-right:3px;"></i>Recent code observed: ${pattern.observed_as}</div>`;
                         html += `</div>`;
                         // Weekday grouping
                         const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];

@@ -61,6 +61,17 @@ def _parse_json_dict(value):
 
 log = logging.getLogger('api.services.recent_activity')
 
+# ICAO operator codes → IATA/DOT carrier codes
+# SWIM/SCDS messages use ICAO callsign prefixes; BTS/historical data uses IATA codes
+_CARRIER_ALIASES = {
+    'JIA': 'OH',   # PSA Airlines
+    'PDT': 'PT',   # Piedmont Airlines
+    'ENY': 'MQ',   # Envoy Air
+    'RPA': 'YX',   # Republic Airways
+    'EDV': '9E',   # Endeavor Air
+    'SKW': 'OO',   # SkyWest Airlines
+}
+
 def get_route_recent_activity(origin, destination):
     """
     Fetch recent route activity summary for a specific route.
@@ -130,32 +141,64 @@ def get_route_recent_activity(origin, destination):
 
     # Fetch carrier-level activity and match types
     try:
+        # Pre-fetch historical carrier codes for this route (used for alias resolution below)
+        try:
+            hist_rows = db.execute("""
+                SELECT carrier_code FROM route_historical_recent_comparison
+                WHERE origin_iata=%s AND dest_iata=%s AND in_historical_data=1
+            """, (origin, destination))
+            historical_codes = {r['carrier_code'] for r in hist_rows}
+        except Exception:
+            historical_codes = set()
+
         carrier_rows = db.execute("""
-            SELECT 
-                ca.carrier_code, 
-                ca.observation_count, 
+            SELECT
+                ca.carrier_code,
+                ca.observation_count,
                 ca.coverage_days,
-                ca.avg_dep_delay_mins, 
-                ca.avg_arr_delay_mins, 
-                ca.cancel_count, 
-                ca.last_observed_at, 
+                ca.avg_dep_delay_mins,
+                ca.avg_arr_delay_mins,
+                ca.cancel_count,
+                ca.last_observed_at,
                 ca.commercial_confidence,
                 ca.common_dep_days,
                 ca.common_dep_windows,
                 comp.in_historical_data,
                 c.name as carrier_name
             FROM recent_route_carrier_activity ca
-            LEFT JOIN route_historical_recent_comparison comp 
-                ON ca.origin_iata = comp.origin_iata 
-               AND ca.dest_iata = comp.dest_iata 
+            LEFT JOIN route_historical_recent_comparison comp
+                ON ca.origin_iata = comp.origin_iata
+               AND ca.dest_iata = comp.dest_iata
                AND ca.carrier_code = comp.carrier_code
             LEFT JOIN carriers c ON ca.carrier_code = c.code
             WHERE ca.origin_iata = %s AND ca.dest_iata = %s
         """, (origin, destination))
-        
+
         for crow in carrier_rows:
-            # Match type determination
-            match_type = 'historical_carrier_match' if crow.get('in_historical_data') else 'possible_recent_carrier_signal'
+            raw_code = crow['carrier_code']
+            alias_target = _CARRIER_ALIASES.get(raw_code)
+
+            # Resolve match type — check direct match first, then alias
+            if crow.get('in_historical_data'):
+                match_type = 'historical_carrier_match'
+                display_code = raw_code
+                carrier_name = crow['carrier_name']
+                observed_as = None
+            elif alias_target and alias_target in historical_codes:
+                match_type = 'historical_carrier_match'
+                display_code = alias_target
+                observed_as = raw_code
+                # Resolve carrier name from canonical code since SWIM used the ICAO code
+                if crow['carrier_name']:
+                    carrier_name = crow['carrier_name']
+                else:
+                    canon_row = db.execute_one("SELECT name FROM carriers WHERE code=%s", (alias_target,))
+                    carrier_name = canon_row['name'] if canon_row else None
+            else:
+                match_type = 'possible_recent_carrier_signal'
+                display_code = raw_code
+                carrier_name = crow['carrier_name']
+                observed_as = None
             
             # Pattern label logic (overall for the carrier)
             obs = crow['observation_count']
@@ -192,7 +235,7 @@ def get_route_recent_activity(origin, destination):
                 GROUP BY p.id
                 ORDER BY p.status = 'active' DESC, p.consecutive_weeks_seen DESC, total_obs DESC
                 LIMIT 5
-            """, (origin, destination, crow['carrier_code']))
+            """, (origin, destination, raw_code))
 
             highest_pattern_label = "Recently observed"
 
@@ -266,9 +309,10 @@ def get_route_recent_activity(origin, destination):
                 pattern_label = "Possible recent carrier signal"
 
             res['recent_carrier_patterns'].append({
-                "carrier_code": crow['carrier_code'],
-                "carrier_name": crow['carrier_name'],
-                "marketing_carrier_name": None, 
+                "carrier_code": display_code,
+                "carrier_name": carrier_name,
+                "observed_as": observed_as,
+                "marketing_carrier_name": None,
                 "match_type": match_type,
                 "observation_count": obs,
                 "coverage_days": cov,
