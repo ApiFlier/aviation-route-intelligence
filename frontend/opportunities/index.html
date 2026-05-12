@@ -742,6 +742,7 @@
 <div id="compare-bar" class="compare-bar">
     <div class="compare-info">
         <div class="compare-title">Route Comparison</div>
+        <div id="compare-error" style="color:#f44336;font-size:0.75rem;margin-left:20px;display:none;"></div>
         <div id="compare-items" class="compare-items"></div>
     </div>
     <div class="compare-actions">
@@ -764,7 +765,7 @@
                         <th>Route</th>
                         <th>Score</th>
                         <th>Market Size</th>
-                        <th>Financials</th>
+                        <th>Fare Context</th>
                         <th>Service</th>
                         <th>Recent Activity</th>
                     </tr>
@@ -1103,9 +1104,9 @@ function getRecentBadge(ra) {
     const hasHist = ra.matched_historical_carriers && ra.matched_historical_carriers.length > 0;
     const hasNew = ra.possible_recent_carrier_signals && ra.possible_recent_carrier_signals.length > 0;
 
-    if (hasHist && hasNew) subLabel = 'Match + New Signals';
+    if (hasHist && hasNew) subLabel = 'Historical + possible recent activity';
     else if (hasHist) subLabel = 'Historical Carrier Observed';
-    else if (hasNew) subLabel = 'Possible Carrier Activity';
+    else if (hasNew) subLabel = 'Possible recent carrier activity';
 
     return `
         <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;">
@@ -1268,7 +1269,7 @@ function buildCard(r, idx) {
             html += `</div>`;
         });
 
-        // New signals
+        // Possible signals
         (recent.possible_recent_carrier_signals || []).forEach(ca => {
             html += `<div class="ra-detail-item" style="border-color:#ff9800;">`;
             html += `<div class="ra-detail-header">`;
@@ -1338,9 +1339,13 @@ function toggleCompare(origin, dest) {
 
     if (idx >= 0) {
         compareList.splice(idx, 1);
+        document.getElementById('compare-error').style.display = 'none';
     } else {
         if (compareList.length >= 5) {
-            alert('Compare up to 5 routes at a time.');
+            const errEl = document.getElementById('compare-error');
+            errEl.textContent = 'Compare up to 5 routes at a time.';
+            errEl.style.display = 'block';
+            setTimeout(() => { errEl.style.display = 'none'; }, 4000);
             return;
         }
         const route = currentResults.find(r => r.origin === origin && r.destination === dest);
@@ -1396,9 +1401,9 @@ function openCompareModal() {
             const hasNew = ra.possible_recent_carrier_signals && ra.possible_recent_carrier_signals.length > 0;
 
             let label = '';
-            if (hasHist && hasNew) label = 'Match + New Signals';
+            if (hasHist && hasNew) label = 'Historical + possible recent activity';
             else if (hasHist) label = 'Historical Carrier Observed';
-            else if (hasNew) label = 'Possible Carrier Activity';
+            else if (hasNew) label = 'Possible recent carrier activity';
             else label = 'Recent activity observed';
 
             recentHtml = `<div class="comp-recent-cell">
