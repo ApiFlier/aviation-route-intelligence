@@ -1513,7 +1513,7 @@ function copyCompareSummary() {
 function downloadCompareCSV() {
     if (compareList.length === 0) return;
 
-    const headers = ['Origin', 'Destination', 'Score', 'Label', 'Passengers', 'Avg Fare', 'Fare Per Mile', 'Airlines', 'Lead Carrier', 'On-Time %', 'Recent Activity', 'Obs Count', 'Coverage Days'];
+    const headers = ['Origin', 'Destination', 'Score', 'Label', 'Passengers', 'Avg Fare', 'Fare Per Mile', 'Airlines', 'Lead Carrier', 'On-Time %', 'Recent Activity', 'Obs Count', 'Coverage Days', 'Advisory Note'];
     const rows = compareList.map(r => {
         const m = r.metrics || {};
         const ra = r.recent_activity || {};
@@ -1541,7 +1541,8 @@ function downloadCompareCSV() {
             m.ontime_pct || '',
             raLabel,
             ra.observation_count || 0,
-            ra.coverage_days || 0
+            ra.coverage_days || 0,
+            'Recent activity is advisory supporting context only and not official schedule data.'
         ];
     });
 
@@ -1559,6 +1560,7 @@ function downloadCompareCSV() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     showModalFeedback('CSV downloaded');
 }
