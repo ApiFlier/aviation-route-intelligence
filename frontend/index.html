@@ -568,7 +568,7 @@
             try {
                 const [airportData, routesData] = await Promise.all([
                     API.getAirport(iata),
-                    API.getAirportRoutes(iata, { direction: 'out', limit: 100 })
+                    API.getAirportRoutes(iata, { direction: 'out', limit: 10 })
                 ]);
                 
                 const airport = airportData.airport;
@@ -1102,7 +1102,7 @@
             const btn = document.querySelector('#info-panel .load-more');
             if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...'; }
             try {
-                const routesData = await API.getAirportRoutes(iata, { direction: 'out', limit: 50, offset });
+                const routesData = await API.getAirportRoutes(iata, { direction: 'out', limit: 10, offset });
                 const container = document.querySelector('#info-panel .list-container');
                 if (!container) return;
 

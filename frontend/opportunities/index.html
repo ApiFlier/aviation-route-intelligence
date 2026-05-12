@@ -1140,14 +1140,6 @@ function buildCard(r, idx) {
         html += `</div>`;
         html += `<div class="ra-disclaimer">Recent activity is advisory supporting context only. Derived from public SWIM/SCDS observations. Not official schedule data.</div>`;
         html += `</div></details>`;
-    } else if (score >= 60) {
-        // Subtle note for high-scoring opportunities with no recent activity
-        html += `<details class="detail-section">`;
-        html += `<summary><i class="fas fa-history" style="color:#555"></i> Recent Activity Context<i class="fas fa-chevron-down toggle-icon"></i></summary>`;
-        html += `<div class="detail-body">`;
-        html += `<div style="font-size:0.8rem;color:#888;font-style:italic;">No recent observed activity in the current window.</div>`;
-        html += `<div class="ra-disclaimer" style="margin-top:8px;">Missing recent observations do not confirm absence of service.</div>`;
-        html += `</div></details>`;
     }
 
     if (reasons.length > 0) {

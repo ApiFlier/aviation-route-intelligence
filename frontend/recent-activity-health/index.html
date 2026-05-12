@@ -183,16 +183,31 @@
             gap: 8px;
         }
         .table-item {
-            display: grid;
-            grid-template-columns: 1fr 100px;
-            align-items: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
             background: rgba(0,0,0,0.15);
             padding: 8px 12px;
             border-radius: 4px;
             font-size: 0.8rem;
+            min-width: 0;
         }
-        .table-name { color: #888; font-family: monospace; }
-        .table-count { text-align: right; font-weight: 700; color: #00d9ff; }
+        .table-name { 
+            color: #888; 
+            font-family: monospace; 
+            overflow-wrap: break-word;
+            word-break: break-all;
+            min-width: 0;
+            flex: 1;
+        }
+        .table-count { 
+            text-align: right; 
+            font-weight: 700; 
+            color: #00d9ff; 
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
         .table-missing { color: #555; font-style: italic; }
 
         /* ── Alias samples ────────────────────────────────────────── */
