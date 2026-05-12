@@ -358,6 +358,79 @@ curl http://localhost:<PORT>/api/routes/opportunities?limit=3
 
 ---
 
+## Updates & Maintenance
+
+FlightConn includes a robust update script to keep your instance current while protecting your data.
+
+### Standard Update
+
+To pull the latest code, rebuild containers, and perform a health check:
+
+```bash
+./update.sh
+```
+
+The script automatically:
+1. Performs a safe disk cleanup (pruning old build cache and dangling images).
+2. Checks for local Git changes to prevent overwriting your work.
+3. Pulls the latest code from your current upstream branch (defaulting to `origin dev`).
+4. Creates a compressed MySQL backup in `~/.flightconn/backups/`.
+5. Auto-detects if the SWIM profile should be enabled based on your `.env`/`deploy.env`.
+6. Rebuilds and restarts containers with `docker compose up -d --build`.
+7. Verifies app health and SWIM freshness.
+
+### Backups
+
+Backups are stored in `~/.flightconn/backups/`.
+- `flightconn-latest.sql.gz`: The most recent backup.
+- `flightconn-YYYYmmdd-HHMMSS.sql.gz`: Timestamped historical backups.
+
+**Retention Policy:**
+The update script keeps:
+- The `latest` backup.
+- At least the 7 newest timestamped backups.
+- Any backup created within the last 14 days.
+
+### Restore & Rollback
+
+If an update fails or you need to revert to a previous state:
+
+**Rollback to pre-update state:**
+```bash
+./update.sh --rollback
+```
+
+**Restore the latest backup:**
+```bash
+./update.sh --restore-latest
+```
+
+**Restore a specific backup:**
+```bash
+./update.sh --restore /path/to/backup.sql.gz
+```
+
+*Note: Restore operations require explicit confirmation by typing `RESTORE` unless `--yes` is passed.*
+
+### Storage Management
+
+The update process includes a "Storage Safety" mechanism. It monitors disk usage and triggers cleanup if it exceeds 85%.
+
+**Safe Cleanup targets:**
+1. Old backups (exceeding retention policy).
+2. Docker build cache older than 24 hours.
+3. Dangling Docker images.
+4. Stopped containers and unused networks.
+
+**Safety Guarantee:**
+The script **NEVER** deletes:
+- Docker named volumes (where your live database lives).
+- Active database backups within the retention period.
+- Your `.env` or `deploy.env` files.
+- Files outside of the known project and backup paths.
+
+---
+
 ## Known Limitations
 
 **General**

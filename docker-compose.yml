@@ -2,6 +2,11 @@ services:
   db:
     image: mysql:8.0
     container_name: flightconn-db
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: flightconn
@@ -22,6 +27,11 @@ services:
       context: .
       dockerfile: api/Dockerfile
     container_name: flightconn-app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     environment:
       DB_HOST: db
       DB_PORT: 3306
@@ -43,6 +53,11 @@ services:
       context: .
       dockerfile: swim-ingestor/Dockerfile
     container_name: flightconn-swim-ingestor
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     env_file:
       - .env
       - deploy.env
