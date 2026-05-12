@@ -445,24 +445,45 @@
             html += `<div class="ra-title"><i class="fas fa-satellite-dish"></i> Possible Recent Carrier Signals</div>`;
             html += `</div>`;
 
+            const weekdays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
             html += `<div class="ra-carrier-list" style="border-top:none;padding-top:0;margin-top:0;">`;
             for (const ca of signals) {
+                const headerName = ca.carrier_name
+                    ? `${ca.carrier_name} <span style="color:#666;">(${ca.carrier_code})</span>`
+                    : `<span style="color:#aaa;">${ca.carrier_code}</span>`;
+
+                // Group patterns by weekday
+                const byDay = {};
+                weekdays.forEach(d => byDay[d] = []);
+                (ca.patterns || []).forEach(p => { if (byDay[p.observed_weekday]) byDay[p.observed_weekday].push(p); });
+                const hasPatterns = (ca.patterns || []).length > 0;
+
                 html += `<div class="ra-carrier-item">`;
-                html += `<div class="ra-carrier-header">`;
-                html += `<span class="ra-carrier-code">${ca.carrier_code}</span>`;
-                if (ca.carrier_name) html += `<span style="font-size:0.75rem;color:#ccc;margin-left:6px;">${ca.carrier_name}</span>`;
-                html += `<span class="ra-carrier-tag" style="background:rgba(0,217,255,0.1);color:#00d9ff;border:1px solid rgba(0,217,255,0.2);">${ca.pattern_label}</span>`;
-                html += `</div>`;
-                html += `<div class="ra-carrier-grid">`;
-                html += `<div class="ra-carrier-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;
-                if (ca.last_observed_at) {
-                    html += `<div class="ra-carrier-stat" style="grid-column:span 2"><i class="fas fa-clock"></i> Last observed: <strong>${ca.last_observed_at}</strong></div>`;
+                html += `<div style="font-weight:600;font-size:0.88rem;color:#eee;margin-bottom:3px;">${headerName}</div>`;
+                html += `<div style="font-size:0.72rem;color:#aaa;margin-bottom:${hasPatterns ? 8 : 4}px;">${ca.pattern_label}</div>`;
+
+                if (hasPatterns) {
+                    html += `<div style="display:flex;flex-direction:column;gap:8px;">`;
+                    weekdays.forEach(day => {
+                        const rows = byDay[day];
+                        if (!rows.length) return;
+                        html += `<div>`;
+                        html += `<div style="font-size:0.72rem;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px;">${day}</div>`;
+                        rows.forEach(p => {
+                            let color = '#00d9ff';
+                            if (p.status === 'watch') color = '#ffeb3b';
+                            else if (p.status === 'stale') color = '#ff9800';
+                            html += `<div style="font-size:0.78rem;color:#ccc;display:flex;align-items:center;gap:6px;margin-bottom:1px;">`;
+                            html += `<i class="fas fa-clock" style="color:${color};font-size:0.62rem;"></i>`;
+                            html += `<span>${p.display_text}</span>`;
+                            html += `</div>`;
+                        });
+                        html += `</div>`;
+                    });
+                    html += `</div>`;
                 }
-                if (ca.patterns && ca.patterns.length > 0) {
-                    html += `<div class="ra-carrier-stat" style="grid-column:span 2;margin-top:4px;"><i class="fas fa-calendar-alt"></i> ${ca.patterns[0].display_text}</div>`;
-                }
-                html += `</div>`;
-                html += `<div class="ra-note" style="border-top:none;padding-top:4px;font-size:0.65rem;">This carrier was observed recently but does not appear in the historical carrier list for this route.</div>`;
+
+                html += `<div style="font-size:0.65rem;color:#555;margin-top:8px;padding-top:6px;border-top:1px solid #1a1a2e;">Not found in historical carrier list for this route.</div>`;
                 html += `</div>`;
             }
             html += `</div>`;

@@ -291,5 +291,34 @@ class TestNormalizer(unittest.TestCase):
         }
         self.assertFalse(is_commercial_candidate(flight_data))
 
+    def test_jia_normalizes_to_oh(self):
+        """JIA (PSA Airlines ICAO) must map to OH (PSA Airlines IATA/DOT code)."""
+        xml = b'''
+        <tfmDataService>
+            <flight gufi="JIA001" acid="JIA001" airline="JIA">
+                <departurePoint><locationIndicator>KAVP</locationIndicator></departurePoint>
+                <arrivalPoint><locationIndicator>KCLT</locationIndicator></arrivalPoint>
+            </flight>
+        </tfmDataService>
+        '''
+        res = parse_swim_message('TFMS', xml)
+        self.assertTrue(res['success'])
+        fd = res['records'][0]['flight_data']
+        self.assertEqual(fd['carrier_code'], 'OH',
+                         "JIA should normalize to OH (PSA Airlines IATA code)")
+        self.assertEqual(fd['origin_iata'], 'AVP')
+        self.assertEqual(fd['dest_iata'], 'CLT')
+
+    def test_regional_icao_codes_normalize(self):
+        """All seeded ICAO→IATA aliases must resolve correctly."""
+        from normalizer import _map_carrier
+        expected = {
+            'JIA': 'OH', 'PDT': 'PT', 'ENY': 'MQ',
+            'RPA': 'YX', 'EDV': '9E', 'SKW': 'OO',
+        }
+        for icao, iata in expected.items():
+            self.assertEqual(_map_carrier(icao), iata,
+                             f"{icao} should map to {iata}")
+
 if __name__ == '__main__':
     unittest.main()

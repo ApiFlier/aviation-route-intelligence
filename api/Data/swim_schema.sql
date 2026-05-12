@@ -306,3 +306,33 @@ CREATE TABLE IF NOT EXISTS recent_carrier_patterns (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Carrier Code Alias Reference
+--
+-- SWIM/SCDS messages use ICAO 3-letter operator codes (e.g. JIA, PDT).
+-- BTS historical route data uses IATA/DOT 2-letter codes (e.g. OH, PT).
+-- This table bridges the two systems for carrier match-type classification.
+-- Keep observed_code entries in sync with _CARRIER_MAP in swim-ingestor/normalizer.py.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS carrier_aliases (
+    observed_code  VARCHAR(10)  NOT NULL,
+    canonical_code VARCHAR(10)  NOT NULL,
+    carrier_name   VARCHAR(255),
+    alias_type     VARCHAR(50)  NOT NULL DEFAULT 'icao_to_iata',
+    notes          VARCHAR(500),
+    PRIMARY KEY (observed_code),
+    INDEX idx_canonical (canonical_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed: ICAO operator codes → IATA/DOT carrier codes for major US regional carriers.
+-- INSERT IGNORE is idempotent — safe to re-run on existing deployments.
+INSERT IGNORE INTO carrier_aliases (observed_code, canonical_code, carrier_name, alias_type, notes) VALUES
+    ('JIA', 'OH', 'PSA Airlines Inc.',      'icao_to_iata', 'PSA Airlines ICAO operator code'),
+    ('PDT', 'PT', 'Piedmont Airlines',      'icao_to_iata', 'Piedmont Airlines ICAO operator code'),
+    ('ENY', 'MQ', 'Envoy Air',              'icao_to_iata', 'Envoy Air ICAO operator code'),
+    ('RPA', 'YX', 'Republic Airline',       'icao_to_iata', 'Republic Airways ICAO operator code'),
+    ('EDV', '9E', 'Endeavor Air Inc.',      'icao_to_iata', 'Endeavor Air ICAO operator code'),
+    ('SKW', 'OO', 'SkyWest Airlines Inc.',  'icao_to_iata', 'SkyWest Airlines ICAO operator code');
+
+

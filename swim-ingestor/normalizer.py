@@ -43,15 +43,18 @@ def _first_text(tree, xpath_expr):
         return matches[0].strip()
     return None
 
-# Mapping of ICAO (3-letter) to IATA (2-letter) carrier codes for major US airlines
+# Mapping of ICAO (3-letter) to IATA (2-letter) carrier codes for major US airlines.
+# SWIM/SCDS messages use ICAO operator codes; BTS/historical data uses IATA codes.
+# Keep this in sync with carrier_aliases seed in api/Data/swim_schema.sql.
 _CARRIER_MAP = {
     'AAL': 'AA', 'DAL': 'DL', 'UAL': 'UA', 'SWA': 'WN', 'FFT': 'F9',
     'JBU': 'B6', 'ASA': 'AS', 'NKS': 'NK', 'HAL': 'HA', 'SKW': 'OO',
-    'ENY': 'MQ', 'RPA': 'YX', 'EDV': '9E', 'PDT': 'PT', 'GJS': 'G7',
-    'UCA': 'ZK', 'MXY': 'MX', 'QXE': 'QX', 'SCX': 'SY', 'G7':  'G7',
-    'YX':  'YX', 'MQ':  'MQ', '9E':  '9E', 'F9':  'F9', 'B6':  'B6',
-    'AS':  'AS', 'NK':  'NK', 'HA':  'HA', 'OO':  'OO', 'PT':  'PT',
-    'ZK':  'ZK', 'MX':  'MX', 'QX':  'QX', 'SY':  'SY',
+    'ENY': 'MQ', 'RPA': 'YX', 'EDV': '9E', 'PDT': 'PT', 'JIA': 'OH',
+    'GJS': 'G7', 'UCA': 'ZK', 'MXY': 'MX', 'QXE': 'QX', 'SCX': 'SY',
+    'G7':  'G7', 'YX':  'YX', 'MQ':  'MQ', '9E':  '9E', 'F9':  'F9',
+    'B6':  'B6', 'AS':  'AS', 'NK':  'NK', 'HA':  'HA', 'OO':  'OO',
+    'PT':  'PT', 'ZK':  'ZK', 'MX':  'MX', 'QX':  'QX', 'SY':  'SY',
+    'OH':  'OH',
 }
 
 def _map_carrier(icao_code: str) -> str:

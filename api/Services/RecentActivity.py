@@ -59,18 +59,9 @@ def _parse_json_dict(value):
             return {}
     return {}
 
-log = logging.getLogger('api.services.recent_activity')
+from Services.CarrierAliasResolver import get_alias_map
 
-# ICAO operator codes → IATA/DOT carrier codes
-# SWIM/SCDS messages use ICAO callsign prefixes; BTS/historical data uses IATA codes
-_CARRIER_ALIASES = {
-    'JIA': 'OH',   # PSA Airlines
-    'PDT': 'PT',   # Piedmont Airlines
-    'ENY': 'MQ',   # Envoy Air
-    'RPA': 'YX',   # Republic Airways
-    'EDV': '9E',   # Endeavor Air
-    'SKW': 'OO',   # SkyWest Airlines
-}
+log = logging.getLogger('api.services.recent_activity')
 
 def get_route_recent_activity(origin, destination):
     """
@@ -141,7 +132,7 @@ def get_route_recent_activity(origin, destination):
 
     # Fetch carrier-level activity and match types
     try:
-        # Pre-fetch historical carrier codes for this route (used for alias resolution below)
+        # Pre-fetch historical carrier codes and alias map for this route
         try:
             hist_rows = db.execute("""
                 SELECT carrier_code FROM route_historical_recent_comparison
@@ -150,6 +141,8 @@ def get_route_recent_activity(origin, destination):
             historical_codes = {r['carrier_code'] for r in hist_rows}
         except Exception:
             historical_codes = set()
+
+        alias_map = get_alias_map(db)
 
         carrier_rows = db.execute("""
             SELECT
@@ -176,7 +169,8 @@ def get_route_recent_activity(origin, destination):
 
         for crow in carrier_rows:
             raw_code = crow['carrier_code']
-            alias_target = _CARRIER_ALIASES.get(raw_code)
+            alias_entry = alias_map.get(raw_code)  # (canonical_code, carrier_name) or None
+            alias_target = alias_entry[0] if alias_entry else None
 
             # Resolve match type — check direct match first, then alias
             if crow.get('in_historical_data'):
@@ -188,12 +182,8 @@ def get_route_recent_activity(origin, destination):
                 match_type = 'historical_carrier_match'
                 display_code = alias_target
                 observed_as = raw_code
-                # Resolve carrier name from canonical code since SWIM used the ICAO code
-                if crow['carrier_name']:
-                    carrier_name = crow['carrier_name']
-                else:
-                    canon_row = db.execute_one("SELECT name FROM carriers WHERE code=%s", (alias_target,))
-                    carrier_name = canon_row['name'] if canon_row else None
+                # Use carrier_name from alias_entry (seeded from canonical carriers table)
+                carrier_name = crow['carrier_name'] or (alias_entry[1] if alias_entry else None)
             else:
                 match_type = 'possible_recent_carrier_signal'
                 display_code = raw_code
