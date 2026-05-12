@@ -558,6 +558,142 @@ def get_opportunity_recent_activity(origin, destination):
         log.warning("Could not fetch carrier activity for opportunities: %s", e)
 
     return res
+
+
+def get_batch_opportunity_recent_activity(route_pairs):
+    """
+    Fetch recent activity context for multiple routes in a single pass.
+    
+    route_pairs: list of (origin, destination) tuples.
+    Returns: dict mapping "ORIGIN-DEST" string to recent_activity dict.
+    """
+    if not route_pairs:
+        return {}
+
+    db = get_db()
+    results = {}
+    
+    # 1. Fetch route-level summaries
+    # We use (origin_iata, dest_iata) IN (...) logic
+    try:
+        # Create placeholders for tuples
+        placeholders = ', '.join(['(%s, %s)'] * len(route_pairs))
+        flat_pairs = [item for sublist in route_pairs for item in sublist]
+        
+        route_rows = db.execute(f"""
+            SELECT origin_iata, dest_iata, observation_count, coverage_days, display_mode, confidence, activity_classification, last_observed_at
+            FROM recent_route_activity
+            WHERE (origin_iata, dest_iata) IN ({placeholders})
+        """, flat_pairs)
+        
+        # Map by key
+        for r in route_rows:
+            key = f"{r['origin_iata']}-{r['dest_iata']}"
+            results[key] = {
+                "available": True,
+                "display_mode": r['display_mode'],
+                "data_signal": r['confidence'],
+                "activity_classification": r['activity_classification'],
+                "observation_count": r['observation_count'],
+                "coverage_days": r['coverage_days'],
+                "last_observed_at": r['last_observed_at'].isoformat() + " UTC" if r['last_observed_at'] else None,
+                "matched_historical_carriers": [],
+                "possible_recent_carrier_signals": [],
+                "carrier_mismatch": False,
+                "carrier_activity": [] # Legacy
+            }
+    except Exception as e:
+        log.warning("Batch recent activity failed (route-level): %s", e)
+        return {}
+
+    if not results:
+        return {}
+
+    # 2. Check for carrier mismatches
+    try:
+        mismatch_rows = db.execute(f"""
+            SELECT origin_iata, dest_iata, 1 as mismatch
+            FROM route_historical_recent_comparison
+            WHERE (origin_iata, dest_iata) IN ({placeholders})
+            AND mismatch_flag = 1
+        """, flat_pairs)
+        for m in mismatch_rows:
+            key = f"{m['origin_iata']}-{m['dest_iata']}"
+            if key in results:
+                results[key]['carrier_mismatch'] = True
+    except Exception:
+        pass
+
+    # 3. Fetch historical carrier codes
+    # key: (origin, dest) -> set of historical carrier codes
+    hist_codes_map = {}
+    try:
+        hist_rows = db.execute(f"""
+            SELECT origin_iata, dest_iata, carrier_code 
+            FROM route_historical_recent_comparison
+            WHERE (origin_iata, dest_iata) IN ({placeholders})
+            AND in_historical_data = 1
+        """, flat_pairs)
+        for h in hist_rows:
+            pair_key = (h['origin_iata'], h['dest_iata'])
+            if pair_key not in hist_codes_map:
+                hist_codes_map[pair_key] = set()
+            hist_codes_map[pair_key].add(h['carrier_code'])
+    except Exception:
+        pass
+
+    # 4. Fetch carrier-level activity
+    alias_map = get_alias_map(db)
+    try:
+        carrier_rows = db.execute(f"""
+            SELECT origin_iata, dest_iata, carrier_code, observation_count, coverage_days, avg_arr_delay_mins, commercial_confidence, last_observed_at
+            FROM recent_route_carrier_activity
+            WHERE (origin_iata, dest_iata) IN ({placeholders})
+        """, flat_pairs)
+
+        for crow in carrier_rows:
+            key = f"{crow['origin_iata']}-{crow['dest_iata']}"
+            if key not in results:
+                continue
+
+            raw_code = crow['carrier_code']
+            canonical_code = raw_code
+            carrier_name = None
+            if raw_code in alias_map:
+                canonical_code, carrier_name = alias_map[raw_code]
+
+            # Data object
+            c_data = {
+                "carrier_code": canonical_code,
+                "carrier_name": carrier_name,
+                "observed_as": raw_code if raw_code != canonical_code else None,
+                "observation_count": crow['observation_count'],
+                "coverage_days": crow['coverage_days'],
+                "last_observed_at": crow['last_observed_at'].isoformat() + " UTC" if crow['last_observed_at'] else None,
+                "commercial_confidence": crow['commercial_confidence']
+            }
+
+            # Categorize
+            pair_key = (crow['origin_iata'], crow['dest_iata'])
+            historical_codes = hist_codes_map.get(pair_key, set())
+            
+            if canonical_code in historical_codes:
+                results[key]['matched_historical_carriers'].append(c_data)
+            elif crow['commercial_confidence'] in ('medium', 'high'):
+                results[key]['possible_recent_carrier_signals'].append(c_data)
+
+            # Legacy support
+            if crow['commercial_confidence'] in ('medium', 'high'):
+                results[key]['carrier_activity'].append({
+                    "carrier_code": canonical_code,
+                    "observation_count": crow['observation_count'],
+                    "avg_observed_arr_variance_mins": float(crow['avg_arr_delay_mins']) if crow['avg_arr_delay_mins'] is not None else None,
+                    "commercial_confidence": crow['commercial_confidence']
+                })
+    except Exception as e:
+        log.warning("Batch recent activity failed (carrier-level): %s", e)
+
+    return results
 def get_recent_activity_status():
     """
     Get system-wide status of SWIM ingestion and aggregation.

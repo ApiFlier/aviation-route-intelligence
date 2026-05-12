@@ -8,7 +8,7 @@ estimate airline profitability or guarantee route success.
 
 import math
 from Classes.Database import get_db
-from Services.RecentActivity import get_opportunity_recent_activity
+from Services.RecentActivity import get_opportunity_recent_activity, get_batch_opportunity_recent_activity
 
 # ── Module-level caches (populated on first request, static between reloads) ──
 # Passenger-weighted average fares per route_id: {route_id: {avg_fare, avg_fare_per_mile}}
@@ -66,10 +66,13 @@ def get_opportunities(params):
     limit = params.get('limit', 25)
     results = scored[:limit]
 
-    # Defer fetching recent activity until after we have our final limited result set
-    # to avoid N+1 overhead on the full candidate list (up to 1000 routes).
+    # Batch fetch recent activity context to avoid N+1 queries.
+    route_pairs = [(r['origin'], r['destination']) for r in results]
+    batch_ra = get_batch_opportunity_recent_activity(route_pairs)
+    
     for r in results:
-        r['recent_activity'] = get_opportunity_recent_activity(r['origin'], r['destination'])
+        key = f"{r['origin']}-{r['destination']}"
+        r['recent_activity'] = batch_ra.get(key, {"available": False})
 
     return {
         'routes': results,

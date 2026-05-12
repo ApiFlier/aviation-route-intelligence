@@ -16,7 +16,7 @@
 
         /* ── Header ───────────────────────────────────────────────── */
         .app-header {
-            height: 56px;
+            height: 60px;
             background: #16213e;
             display: flex;
             align-items: center;
@@ -196,8 +196,7 @@
         .table-name { 
             color: #888; 
             font-family: monospace; 
-            overflow-wrap: break-word;
-            word-break: break-all;
+            overflow-wrap: anywhere;
             min-width: 0;
             flex: 1;
         }
@@ -507,8 +506,9 @@
             const info = tables[name];
             const div = document.createElement('div');
             div.className = 'table-item';
+            const displayName = name.replace(/_/g, ' ');
             div.innerHTML = `
-                <span class="table-name">${name}</span>
+                <span class="table-name" title="${name}">${displayName}</span>
                 <span class="table-count">${info.available ? info.count.toLocaleString() : '<span class="table-missing">Missing</span>'}</span>
             `;
             tableList.appendChild(div);

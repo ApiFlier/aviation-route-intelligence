@@ -16,7 +16,7 @@
 
         /* ── Header ───────────────────────────────────────────────── */
         .app-header {
-            height: 56px;
+            height: 60px;
             background: #16213e;
             display: flex;
             align-items: center;
@@ -790,9 +790,9 @@ function scoreColor(s) {
 }
 
 function dataSignalLabel(c) {
-    if (c === 'high')   return 'Consistent recent pattern';
-    if (c === 'medium') return 'Early recent pattern';
-    return 'Early signal';
+    if (c === 'high')   return 'Established Volume';
+    if (c === 'medium') return 'Moderate Volume';
+    return 'Smaller Market Signal';
 }
 function dataSignalColor(c) {
     if (c === 'high')   return '#00ff88';
