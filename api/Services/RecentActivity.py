@@ -154,19 +154,12 @@ def get_route_recent_activity(origin, destination):
                 day_full = day_names[day_code]
                 
                 raw_window = prow['time_window']
-                if '-' in raw_window:
-                    # Old 3-hour window format: HH-HH
-                    win_parts = raw_window.split('-')
-                    window = f"{win_parts[0]}:00-{win_parts[1]}:00 UTC"
-                else:
-                    # New 1-hour centered bucket: HH
-                    try:
-                        hour = int(raw_window)
-                        # The user wants "Around 9:00 AM" in the UI. 
-                        # We'll return the raw hour and UTC label to the API.
-                        window = f"{hour:02d}:00 UTC"
-                    except ValueError:
-                        window = f"{raw_window} UTC"
+                try:
+                    hour = int(raw_window)
+                    window = f"{hour:02d}:00 UTC"
+                except ValueError:
+                    # Fallback for any non-integer windows, though we expect only hour buckets now
+                    window = f"{raw_window} UTC"
 
                 streak = prow['consecutive_weeks_seen']
                 status = prow['status']
