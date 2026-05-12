@@ -66,6 +66,11 @@ def get_opportunities(params):
     limit = params.get('limit', 25)
     results = scored[:limit]
 
+    # Defer fetching recent activity until after we have our final limited result set
+    # to avoid N+1 overhead on the full candidate list (up to 1000 routes).
+    for r in results:
+        r['recent_activity'] = get_opportunity_recent_activity(r['origin'], r['destination'])
+
     return {
         'routes': results,
         'meta': {
@@ -297,7 +302,6 @@ def _score_route(row, fare_cache, reporting_carriers):
             'dominant_carrier':       dominant_carrier or None,
             'dominant_carrier_share': round(dominant_share, 2) if dominant_share is not None else None,
         },
-        'recent_activity': get_opportunity_recent_activity(origin, dest),
         'summary':    summary,
         'reasons':    reasons,
         'risks':      risks,
