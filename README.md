@@ -229,20 +229,6 @@ The bundled database (`api/Data/db_backup.sql.gz`) contains pre-processed data d
 
 ---
 
-## Maintenance
-
-```bash
-./update.sh          # Rebuild containers after code changes (auto-backups first)
-./backup.sh          # Create a manual database backup → backups/
-./restore.sh <file>  # Restore from a backup file (requires typed confirmation)
-
-docker compose ps
-docker compose logs -f
-docker compose down
-```
-
----
-
 ## Optional FAA SWIM Recent Activity Sidecar
 
 The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely on historical public aviation datasets. **No SWIM credentials or network access are required.** Normal setup works without any SWIM configuration.
