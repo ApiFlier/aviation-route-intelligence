@@ -247,7 +247,7 @@ docker compose down
 
 The core app (Route Map, Route Opportunity Finder, Airline Health) runs entirely on historical public aviation datasets. **No SWIM credentials or network access are required.** Normal setup works without any SWIM configuration.
 
-**Disclaimer:** Data obtained via the SWIM Cloud Distribution Service (SCDS) is NOT for OPERATIONAL USE. All data has been pre-approved for public release by the NAS Data Release Board (NDRB). Extracted times are derived from public-release messages and do not represent official airline schedule data. FlightConn uses STDDS and other data sources for enrichment only, not for live tracking.
+**Disclaimer:** Data obtained via the SWIM Cloud Distribution Service (SCDS) is NOT for OPERATIONAL USE. All data has been pre-approved for public release by the NAS Data Release Board (NDRB). Extracted times are derived from public-release messages and do not represent official airline schedule data. FlightConn uses STDDS and other data sources for enrichment only, not for live tracking. Carrier-level recent activity now includes observed timing variance and observation counts where available.
 
 For a detailed breakdown of the fields extracted from FAA SWIM and their target dashboards, see the **[SWIM Field Catalog](docs/swim-field-catalog.md)**.
 

@@ -68,9 +68,31 @@ def get_route_recent_activity(origin, destination):
         "common_dep_windows": row['common_dep_windows'],
         "last_observed_at": row['last_observed_at'].isoformat() if row['last_observed_at'] else None,
         "classification_note": row['classification_note'],
+        "carrier_activity": [],
         "notes": [],
         "red_flags": []
     }
+
+    # Fetch carrier-level activity if available
+    try:
+        carrier_rows = db.execute("""
+            SELECT carrier_code, observation_count, avg_dep_delay_mins, avg_arr_delay_mins, cancel_count, last_observed_at, commercial_confidence
+            FROM recent_route_carrier_activity
+            WHERE origin_iata = %s AND dest_iata = %s
+        """, (origin, destination))
+        
+        for crow in carrier_rows:
+            res['carrier_activity'].append({
+                "carrier_code": crow['carrier_code'],
+                "observation_count": crow['observation_count'],
+                "avg_observed_dep_variance_mins": float(crow['avg_dep_delay_mins']) if crow['avg_dep_delay_mins'] is not None else None,
+                "avg_observed_arr_variance_mins": float(crow['avg_arr_delay_mins']) if crow['avg_arr_delay_mins'] is not None else None,
+                "cancel_count": crow['cancel_count'],
+                "last_observed_at": crow['last_observed_at'].isoformat() if crow['last_observed_at'] else None,
+                "commercial_confidence": crow['commercial_confidence']
+            })
+    except Exception as e:
+        log.warning("Could not fetch recent_route_carrier_activity: %s", e)
 
     # Add dynamic notes based on confidence and mode
     if row['display_mode'] == 'early_recent_signal':
@@ -82,6 +104,9 @@ def get_route_recent_activity(origin, destination):
     elif row['activity_classification'] == 'recent_commercial_candidate':
         res['notes'].append("Recent observations show significant activity on this route, suggesting a new commercial candidate.")
     
+    if res['carrier_activity']:
+        res['notes'].append("Carrier-level timing metrics are derived from public-release SWIM/SCDS messages and represent observed variance, not official airline schedule data.")
+
     # Check for carrier mismatch
     mismatch = db.execute_one("""
         SELECT 1 FROM route_historical_recent_comparison
@@ -173,7 +198,13 @@ def get_recent_activity_status():
         "tables_available": False,
         "observed_flights_count": 0,
         "recent_route_activity_count": 0,
-        "latest_ingestion_run": None
+        "recent_route_carrier_activity_count": 0,
+        "latest_ingestion_run": None,
+        "metadata": {
+            "source": "FAA SWIM/SCDS public-release data",
+            "operational_use": False,
+            "disclaimer": "SWIM/SCDS data is not for operational use."
+        }
     }
     
     try:
