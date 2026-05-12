@@ -292,6 +292,7 @@ Available at `/recent-activity-health/` (also reachable via `/status/`), the Sys
 ### Route Opportunity Finder & Recent Activity
 
 The **Route Opportunity Finder** now includes recent activity context as advisory supporting data.
+- **Shortlist & Compare**: Users can select up to 5 routes to compare side-by-side in a compact table view, facilitating quick evaluation of multiple opportunities.
 - **Supporting Context**: Informational badges and detail sections indicate whether a route has recently observed historical carrier activity or possible new carrier signals.
 - **Historical Primary**: Historical/public route data remains the primary basis for all opportunity scores. Recent activity is currently non-scoring and provided for context only.
 - **Advisory Only**: Like all recent data in FlightConn, these signals are derived from public SWIM/SCDS observations and do not represent official airline schedules or confirmed new routes.
