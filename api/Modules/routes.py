@@ -112,7 +112,10 @@ def get_route(origin, dest):
     if not route:
         return jsonify({'error': 'Route not found'}), 404
     
-    return jsonify({'route': route})
+    return jsonify({
+        'route': route,
+        'recent_activity_context': get_route_recent_activity(origin, dest)
+    })
 
 
 @routes_bp.route('/routes/<origin>/<dest>/carriers')
