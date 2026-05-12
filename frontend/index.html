@@ -429,7 +429,10 @@
             }
 
             // Filter for unmatched carriers (possible recent signals)
-            const signals = (ra.recent_carrier_patterns || []).filter(p => p.match_type === 'possible_recent_carrier_signal');
+            const signals = (ra.recent_carrier_patterns || [])
+                .filter(p => p.match_type === 'possible_recent_carrier_signal')
+                .sort((a, b) => b.observation_count - a.observation_count)
+                .slice(0, 5);
             
             if (signals.length === 0) {
                 return ''; // Don't show anything on the route card if there are no unmatched signals
@@ -445,6 +448,7 @@
                 html += `<div class="ra-carrier-item">`;
                 html += `<div class="ra-carrier-header">`;
                 html += `<span class="ra-carrier-code">${ca.carrier_code}</span>`;
+                html += `<span class="ra-carrier-conf" style="background:rgba(0,217,255,0.1);color:#00d9ff;border:1px solid rgba(0,217,255,0.2);">${ca.pattern_label}</span>`;
                 html += `</div>`;
                 html += `<div class="ra-carrier-grid">`;
                 html += `<div class="ra-carrier-stat"><i class="fas fa-eye"></i> Observations: <strong>${ca.observation_count}</strong></div>`;

@@ -267,12 +267,12 @@ def _score_route(row, fare_cache, reporting_carriers):
         'risk_penalty':    -round(penalties),
     }
 
-    confidence = _confidence_label(passengers, has_fare, distance)
-    label      = _opportunity_label(components, carrier_count, has_fare)
-    reasons    = _reasons(components, carrier_count, has_fare)
-    risks      = _risks(components, has_fare, carrier_count) + risk_notes
-    data_notes = _data_notes(has_fare, row.get('origin_country'), row.get('dest_country'))
-    summary    = _summary_text(origin, dest, components)
+    data_signal = _data_signal_label(passengers, has_fare, distance)
+    label       = _opportunity_label(components, carrier_count, has_fare)
+    reasons     = _reasons(components, carrier_count, has_fare)
+    risks       = _risks(components, has_fare, carrier_count) + risk_notes
+    data_notes  = _data_notes(has_fare, row.get('origin_country'), row.get('dest_country'))
+    summary     = _summary_text(origin, dest, components)
 
     return {
         'origin':            origin,
@@ -286,7 +286,7 @@ def _score_route(row, fare_cache, reporting_carriers):
         'destination_state': row.get('dest_state'),
         'distance':          distance or None,
         'opportunity_score': opportunity_score,
-        'confidence':        confidence,
+        'data_signal':       data_signal,
         'label':             label,
         'components':        components,
         'metrics': {
@@ -436,7 +436,7 @@ def _risk_penalties(passengers, has_fare, distance):
 
 # ── Labels and text ───────────────────────────────────────────────────────────
 
-def _confidence_label(passengers, has_fare, distance):
+def _data_signal_label(passengers, has_fare, distance):
     if not has_fare or not distance:
         return 'low'
     if passengers >= 100_000:
@@ -453,7 +453,7 @@ def _opportunity_label(components, carrier_count, has_fare):
     sv = components['service_gap']
 
     if not has_fare:
-        return 'Low Confidence'
+        return 'Early Signal'
     if c >= 75 and f >= 60:
         return 'High-Fare Limited Competition'
     if d >= 70 and c >= 60:
@@ -466,7 +466,7 @@ def _opportunity_label(components, carrier_count, has_fare):
         return 'Competitive Market'
     if d < 35:
         return 'Thin Demand Risk'
-    return 'Mixed Signals'
+    return 'Based on Recent Activity'
 
 
 def _reasons(components, carrier_count, has_fare):

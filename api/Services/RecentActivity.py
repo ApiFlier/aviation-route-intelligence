@@ -115,9 +115,9 @@ def get_route_recent_activity(origin, destination):
             cov = crow['coverage_days']
             
             if obs >= 1 and cov >= 21: # Roughly 3 weeks
-                pattern_label = "Recurring recent pattern"
+                pattern_label = "Consistent recent pattern"
             elif obs >= 3 and cov >= 7:
-                pattern_label = "Recent observed schedule pattern"
+                pattern_label = "Consistent recent pattern"
             elif obs >= 3:
                 pattern_label = "Early recent pattern"
             else:
@@ -144,15 +144,17 @@ def get_route_recent_activity(origin, destination):
                   AND p.status IN ('active', 'watch', 'stale')
                 GROUP BY p.id
                 ORDER BY p.status = 'active' DESC, p.consecutive_weeks_seen DESC, total_obs DESC
-                LIMIT 3
+                LIMIT 5
             """, (origin, destination, crow['carrier_code']))
 
-            highest_pattern_label = None
+            highest_pattern_label = "Recently observed"
 
             for prow in pattern_rows:
                 day_code = list(day_names.keys())[prow['day_of_week']]
                 day_full = day_names[day_code]
-                window = prow['time_window']
+                # Format window as HH:00-HH:00 UTC
+                win_parts = prow['time_window'].split('-')
+                window = f"{win_parts[0]}:00-{win_parts[1]}:00 UTC"
                 streak = prow['consecutive_weeks_seen']
                 status = prow['status']
                 total_obs = int(prow['total_obs'])
@@ -168,23 +170,20 @@ def get_route_recent_activity(origin, destination):
                         label = "Early signal"
                 
                 # Track highest label for carrier-level summary
-                if highest_pattern_label != "Consistent recent pattern":
-                    if label == "Consistent recent pattern":
-                        highest_pattern_label = label
-                    elif label == "Early recent pattern" and highest_pattern_label != "Consistent recent pattern":
-                        highest_pattern_label = label
-                    elif label == "Early signal" and highest_pattern_label not in ("Consistent recent pattern", "Early recent pattern"):
-                        highest_pattern_label = label
-                    elif highest_pattern_label is None:
+                order = ["Consistent recent pattern", "Early recent pattern", "Early signal", "Recently observed", "Watch", "Stale"]
+                if label in order:
+                    if highest_pattern_label not in order or order.index(label) < order.index(highest_pattern_label):
                         highest_pattern_label = label
 
                 streak_text = ""
                 if status == 'active' and streak > 1:
                     streak_text = f" · Seen {streak} weeks in a row"
                 elif status == 'watch':
-                    streak_text = " · Pattern not seen this week"
+                    streak_text = " · Pattern not seen recently"
+                    label = "Watch"
                 elif status == 'stale':
                     streak_text = " · Stale recent pattern"
+                    label = "Stale"
 
                 obs_text = f" · Observed {total_obs} times" if total_obs > 0 else ""
 
@@ -198,9 +197,12 @@ def get_route_recent_activity(origin, destination):
                     "label": label
                 })
 
-            # Use highest pattern label as the overall label if available
-            if highest_pattern_label:
-                pattern_label = highest_pattern_label
+            # Use highest pattern label as the overall label
+            pattern_label = highest_pattern_label
+
+            # Special label for unmatched carriers
+            if match_type == 'possible_recent_carrier_signal':
+                pattern_label = "Possible recent carrier signal"
 
             res['recent_carrier_patterns'].append({
                 "carrier_code": crow['carrier_code'],
@@ -313,7 +315,7 @@ def get_opportunity_recent_activity(origin, destination):
     res = {
         "available": True,
         "display_mode": row['display_mode'],
-        "confidence": row['confidence'],
+        "data_signal": row['confidence'],
         "activity_classification": row['activity_classification'],
         "observation_count": row['observation_count'],
         "carrier_mismatch": bool(mismatch),

@@ -788,12 +788,12 @@ function scoreColor(s) {
     return '#f44336';
 }
 
-function confLabel(c) {
-    if (c === 'high')   return 'High Confidence';
-    if (c === 'medium') return 'Med Confidence';
-    return 'Low Confidence';
+function dataSignalLabel(c) {
+    if (c === 'high')   return 'Consistent recent pattern';
+    if (c === 'medium') return 'Early recent pattern';
+    return 'Early signal';
 }
-function confColor(c) {
+function dataSignalColor(c) {
     if (c === 'high')   return '#00ff88';
     if (c === 'medium') return '#ffeb3b';
     return '#ff9800';
@@ -965,7 +965,7 @@ function getRecentBadge(ra) {
 function buildCard(r, idx) {
     const score     = r.opportunity_score ?? 0;
     const sColor    = scoreColor(score);
-    const conf      = r.confidence || 'low';
+    const signal    = r.data_signal || 'low';
     const m         = r.metrics    || {};
     const comp      = r.components || {};
     const reasons   = r.reasons    || [];
@@ -1004,7 +1004,7 @@ function buildCard(r, idx) {
     // Score ring
     html += `<div class="card-score-section">`;
     html += `<div class="score-ring" style="color:${sColor};border-color:${sColor}">${score}</div>`;
-    html += `<div class="score-conf" style="color:${confColor(conf)}">${esc(confLabel(conf))}</div>`;
+    html += `<div class="score-conf" style="color:${dataSignalColor(signal)}">${esc(dataSignalLabel(signal))}</div>`;
     html += `<div class="score-label">${esc(r.label || '')}</div>`;
     html += `</div>`;
 
