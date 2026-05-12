@@ -179,6 +179,11 @@
         .ra-carrier-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
         .ra-carrier-stat { font-size: 0.7rem; color: #aaa; }
         .ra-carrier-stat strong { color: #eee; }
+        
+        /* Weekday grouping styles */
+        .ra-day-row { border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; }
+        .ra-day-row:last-child { border-bottom: none; }
+        
         .ra-disclaimer { font-size: 0.65rem; color: #555; margin-top: 10px; font-style: italic; line-height: 1.3; }
 
         .fare-season-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
@@ -841,29 +846,54 @@
                         html += `<div class="ra-title">${pattern.pattern_label}</div>`;
                         html += `</div>`;
                         html += `<div class="ra-stats">`;
-                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.observation_count}</span><span class="ra-stat-label">Observations</span></div>`;
+                        html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.observation_count}</span><span class="ra-stat-label">Total Obs</span></div>`;
                         html += `<div class="ra-stat-box"><span class="ra-stat-value">${pattern.coverage_days}d</span><span class="ra-stat-label">Coverage</span></div>`;
                         html += `</div>`;
                         
-                        if (pattern.patterns && pattern.patterns.length > 0) {
-                            html += `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">`;
-                            for (const p of pattern.patterns) {
-                                let icon = 'fa-clock';
-                                let color = '#00d9ff';
-                                if (p.status === 'watch') { icon = 'fa-eye'; color = '#ffeb3b'; }
-                                else if (p.status === 'stale') { icon = 'fa-exclamation-triangle'; color = '#ff9800'; }
-                                
-                                html += `<div class="pattern-item" style="border-left: 2px solid ${color}; padding-left: 10px; margin-bottom: 4px;">`;
-                                html += `<div style="font-size:0.85rem;color:#eee;font-weight:600;">${p.label}</div>`;
-                                html += `<div style="font-size:0.75rem;color:#ccc;"><i class="fas ${icon}" style="color:${color};margin-right:6px;font-size:0.65rem;"></i>${p.display_text}</div>`;
-                                html += `</div>`;
-                            }
-                            html += `</div>`;
+                        // Weekday grouping
+                        const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+                        const patternsByDay = {};
+                        weekdays.forEach(d => patternsByDay[d] = []);
+                        if (pattern.patterns) {
+                            pattern.patterns.forEach(p => {
+                                if (patternsByDay[p.observed_weekday]) patternsByDay[p.observed_weekday].push(p);
+                            });
                         }
 
-                        if (pattern.last_observed_at) {
-                            html += `<div style="margin-top:10px;font-size:0.7rem;color:#888;"><i class="fas fa-history" style="margin-right:6px;"></i>Last observed: <strong>${pattern.last_observed_at}</strong></div>`;
-                        }
+                        html += `<div class="ra-weekday-grid" style="margin-top:12px; display:flex; flex-direction:column; gap:10px;">`;
+                        weekdays.forEach(day => {
+                            const dayPatterns = patternsByDay[day];
+                            html += `<div class="ra-day-row">`;
+                            html += `<div style="font-size:0.75rem; color:#888; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; font-weight:700;">${day}</div>`;
+                            
+                            if (dayPatterns.length === 0) {
+                                html += `<div style="font-size:0.75rem; color:#444; font-style:italic;">No observed activity</div>`;
+                            } else {
+                                dayPatterns.forEach(p => {
+                                    let timeStr = p.observed_time_window;
+                                    // If window is HH:00 UTC, format as Around H:00 AM/PM UTC
+                                    if (timeStr.includes(':00 UTC') && !timeStr.includes('-')) {
+                                        const h = parseInt(timeStr.split(':')[0], 10);
+                                        const ampm = h >= 12 ? 'PM' : 'AM';
+                                        const h12 = h % 12 || 12;
+                                        timeStr = `Around ${h12}:00 ${ampm} UTC`;
+                                    }
+
+                                    const obsLabel = p.window_observation_count === 1 ? 'observation' : 'observations';
+                                    
+                                    let color = '#00d9ff';
+                                    if (p.status === 'watch') color = '#ffeb3b';
+                                    else if (p.status === 'stale') color = '#ff9800';
+
+                                    html += `<div style="font-size:0.8rem; color:#ccc; display:flex; align-items:center; gap:8px; margin-bottom:2px;">`;
+                                    html += `<i class="fas fa-clock" style="color:${color}; font-size:0.65rem;"></i>`;
+                                    html += `<span>${timeStr} · <strong>${p.window_observation_count}</strong> ${obsLabel}</span>`;
+                                    html += `</div>`;
+                                });
+                            }
+                            html += `</div>`;
+                        });
+                        html += `</div>`;
 
                         html += `<div class="ra-disclaimer">Based on recent public SWIM/SCDS observations. Not official schedule data.</div>`;
                         html += `</div>`;

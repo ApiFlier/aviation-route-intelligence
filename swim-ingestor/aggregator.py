@@ -248,12 +248,11 @@ def aggregate_recent_route_carrier_activity(lookback_days: int = 30) -> int:
             with conn.cursor() as cur_win:
                 cur_win.execute("""
                     SELECT 
-                        CONCAT(LPAD(FLOOR(HOUR(sched_dep_utc)/3)*3, 2, '0'), '-', 
-                               LPAD(IF(FLOOR(HOUR(sched_dep_utc)/3)*3+3=24, 0, FLOOR(HOUR(sched_dep_utc)/3)*3+3), 2, '0')) as `window`,
+                        LPAD(HOUR(DATE_ADD(COALESCE(o.actual_dep_utc, o.sched_dep_utc), INTERVAL 30 MINUTE)), 2, '0') as `window`,
                         COUNT(*) as c
-                    FROM observed_flights
-                    WHERE origin_iata = %s AND dest_iata = %s AND carrier_code = %s
-                      AND sched_dep_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
+                    FROM observed_flights o
+                    WHERE o.origin_iata = %s AND o.dest_iata = %s AND o.carrier_code = %s
+                      AND COALESCE(o.actual_dep_utc, o.sched_dep_utc) >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)
                     GROUP BY `window`
                     ORDER BY c DESC
                 """, (origin_iata, dest_iata, carrier_code, lookback_days))
@@ -409,8 +408,7 @@ def aggregate_carrier_weekly_rollups() -> int:
                 o.dest_iata, 
                 o.carrier_code, 
                 WEEKDAY(COALESCE(o.actual_dep_utc, o.sched_dep_utc)) as day_of_week,
-                CONCAT(LPAD(FLOOR(HOUR(COALESCE(o.actual_dep_utc, o.sched_dep_utc))/3)*3, 2, '0'), '-', 
-                       LPAD(IF(FLOOR(HOUR(COALESCE(o.actual_dep_utc, o.sched_dep_utc))/3)*3+3=24, 0, FLOOR(HOUR(COALESCE(o.actual_dep_utc, o.sched_dep_utc))/3)*3+3), 2, '0')) as `window`,
+                LPAD(HOUR(DATE_ADD(COALESCE(o.actual_dep_utc, o.sched_dep_utc), INTERVAL 30 MINUTE)), 2, '0') as `window`,
                 DATE(DATE_SUB(COALESCE(o.actual_dep_utc, o.sched_dep_utc), INTERVAL WEEKDAY(COALESCE(o.actual_dep_utc, o.sched_dep_utc)) DAY)) as week_start_date,
                 COUNT(DISTINCT o.source_flight_id) as observation_count
             FROM observed_flights o

@@ -152,9 +152,22 @@ def get_route_recent_activity(origin, destination):
             for prow in pattern_rows:
                 day_code = list(day_names.keys())[prow['day_of_week']]
                 day_full = day_names[day_code]
-                # Format window as HH:00-HH:00 UTC
-                win_parts = prow['time_window'].split('-')
-                window = f"{win_parts[0]}:00-{win_parts[1]}:00 UTC"
+                
+                raw_window = prow['time_window']
+                if '-' in raw_window:
+                    # Old 3-hour window format: HH-HH
+                    win_parts = raw_window.split('-')
+                    window = f"{win_parts[0]}:00-{win_parts[1]}:00 UTC"
+                else:
+                    # New 1-hour centered bucket: HH
+                    try:
+                        hour = int(raw_window)
+                        # The user wants "Around 9:00 AM" in the UI. 
+                        # We'll return the raw hour and UTC label to the API.
+                        window = f"{hour:02d}:00 UTC"
+                    except ValueError:
+                        window = f"{raw_window} UTC"
+
                 streak = prow['consecutive_weeks_seen']
                 status = prow['status']
                 total_obs = int(prow['total_obs'])
@@ -187,8 +200,8 @@ def get_route_recent_activity(origin, destination):
 
                 obs_text = ""
                 if total_obs > 0:
-                    times_label = "time" if total_obs == 1 else "times"
-                    obs_text = f" · Observed {total_obs} {times_label}"
+                    obs_label = "observation" if total_obs == 1 else "observations"
+                    obs_text = f" · {total_obs} {obs_label}"
 
                 patterns.append({
                     "observed_weekday": day_full,
