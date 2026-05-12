@@ -636,8 +636,6 @@
                     html += '</div>';
                 }
                 
-                html += getRecentActivitySection(carriersData.recent_activity_context);
-                
                 // Build a map of latest-quarter fare per carrier for inline display
                 const latestFareMap = {};
                 for (const cs of (faresData.carrier_seasonal || [])) {
@@ -670,6 +668,8 @@
                     html += `</div></div>`;
                 }
                 html += '</div>';
+
+                html += getRecentActivitySection(carriersData.recent_activity_context);
 
                 // ── Fare section ──────────────────────────────────────────────
                 const fareCarriers = faresData.carriers || [];
