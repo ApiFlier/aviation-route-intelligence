@@ -390,8 +390,17 @@
             try {
                 const data = await API.getAirports({ q: query, limit: 1 });
                 if (data.airports.length > 0) { selectAirport(data.airports[0].iata); input.value = ''; }
-                else { alert('Airport not found.'); }
-            } catch (err) { alert('Search failed: ' + err.message); }
+                else {
+                    const ac = document.getElementById('autocomplete');
+                    ac.innerHTML = '<div style="padding:10px 12px;color:#ff6b6b;font-size:0.9rem;">Airport not found.</div>';
+                    ac.classList.add('visible');
+                }
+            } catch (err) {
+                console.error('Search failed:', err);
+                const ac = document.getElementById('autocomplete');
+                ac.innerHTML = '<div style="padding:10px 12px;color:#ff6b6b;font-size:0.9rem;">Search failed.</div>';
+                ac.classList.add('visible');
+            }
         }
         
         function clearMap() { mapLayer.clearLayers(); }
@@ -659,7 +668,9 @@
                 map.flyTo([airport.lat, airport.lon], 5);
             } catch (err) {
                 console.error('Failed to load airport:', err);
-                alert('Failed to load airport: ' + err.message);
+                const panel = document.getElementById('info-panel');
+                panel.innerHTML = '<div style="padding:15px;color:#ff6b6b;">Failed to load airport. Please try again.</div>';
+                panel.classList.add('visible');
             }
         }
         
@@ -816,7 +827,9 @@
                 map.fitBounds(bounds, { padding: [100, 100] });
             } catch (err) {
                 console.error('Failed to load route:', err);
-                alert('Failed to load route: ' + err.message);
+                const panel = document.getElementById('info-panel');
+                panel.innerHTML = '<div style="padding:15px;color:#ff6b6b;">Failed to load route. Please try again.</div>';
+                panel.classList.add('visible');
             }
         }
         
@@ -833,7 +846,12 @@
                 const carrierFares = (faresData.carrier_seasonal || []).filter(f => f.carrier_code === carrierCode);
 
                 // If not in T-100 data at all and no fare data, bail
-                if (!carrier && !fareCarrierInfo) { alert('Carrier not found'); return; }
+                if (!carrier && !fareCarrierInfo) {
+                    const panel = document.getElementById('info-panel');
+                    panel.innerHTML = '<div style="padding:15px;color:#ff6b6b;">Carrier not found.</div>';
+                    panel.classList.add('visible');
+                    return;
+                }
 
                 // Use T-100 carrier record; fall back to a stub when only fare data exists
                 const c = carrier || {
@@ -1089,7 +1107,9 @@
                 panel.classList.add('visible');
             } catch (err) {
                 console.error('Failed to load carrier:', err);
-                alert('Failed to load carrier: ' + err.message);
+                const panel = document.getElementById('info-panel');
+                panel.innerHTML = '<div style="padding:15px;color:#ff6b6b;">Failed to load carrier. Please try again.</div>';
+                panel.classList.add('visible');
             }
         }
         
