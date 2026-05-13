@@ -44,7 +44,7 @@ FlightConn is a route and airline intelligence tool for exploring airline routes
 
 **Route Opportunity Finder** (`/opportunities/`) — A ranked, filterable view of existing routes scored on public-data signals: passenger demand, historical fare levels, competition, seat utilization, reliability, and carrier context. Useful for quickly surfacing routes that may deserve deeper review. Scores are directional indicators, not profitability estimates.
 
-**Airline Health** (`/airline-health/`) — Carrier-level context using public financial, fleet, network, employee, and operating indicators. Helps users compare airline stability across major US carriers. It does not predict job security, route profitability, or future airline performance. Also reachable at `/career/`.
+**Airline Health** (`/airline-health/`) — Carrier-level context using public financial, fleet, network, employee, and operating indicators. Helps users compare airline stability across major US carriers. Selected carriers can be compared side-by-side using public filing, fleet, workforce, and network indicators. Also reachable at `/career/`.
 
 **System Health Dashboard** (`/recent-activity-health/`) — Operational visibility into the optional recent activity pipeline. Shows ingestion status, data freshness, quality indicators, and carrier alias resolution status. Also reachable at `/status/`.
 
@@ -153,7 +153,7 @@ Risk penalties are applied for missing data: no fare coverage, unknown distance,
 
 Available at `/airline-health/` (also `/career/` for backward compatibility), the Airline Health dashboard shows every carrier that has both BTS financial and employee filings. It provides carrier-level context using public financial, fleet, network, employee, and operating indicators. Carrier health indicators are system-level signals and do not predict job security, route profitability, or future airline performance.
 
-Cards display a 0–100 health score, employee count, quarterly compensation, and an on-time performance bar.
+Cards display a 0–100 health score, employee count, quarterly compensation, and an on-time performance bar. Selected carriers can be compared side-by-side using public filing, fleet, workforce, and network indicators.
 
 Clicking a carrier opens a tabbed detail view:
 
@@ -497,7 +497,6 @@ FlightConn is a data-intensive application. Even if you delete the local source 
 - Unserved market discovery (hypothetical route scoring)
 - Historical route trend analysis and year-over-year performance comparison
 - Airport congestion and delay heatmaps
-- Side-by-side carrier comparison view
 - Stage length and fuel efficiency analysis
 - Mobile-responsive layout improvements
 - Automated BTS data refresh pipeline

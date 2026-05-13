@@ -287,6 +287,107 @@
             .airlines-grid { grid-template-columns: 1fr; }
             .charts-row { grid-template-columns: 1fr; }
         }
+
+        /* ── Comparison UI ───────────────────────────────────────── */
+        .compare-bar {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: #16213e;
+            border-top: 2px solid #7209b7;
+            padding: 14px 24px;
+            display: flex; align-items: center; justify-content: space-between;
+            z-index: 1000;
+            transform: translateY(100%);
+            transition: transform 0.3s ease-out;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+        }
+        .compare-bar.visible { transform: translateY(0); }
+        .compare-info { display: flex; align-items: center; gap: 20px; }
+        .compare-title { font-size: 0.85rem; font-weight: 700; color: #7209b7; text-transform: uppercase; letter-spacing: 0.05em; }
+        .compare-items { display: flex; gap: 10px; flex-wrap: wrap; }
+        .compare-pill {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px; padding: 4px 10px; font-size: 0.8rem; color: #ccc;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .compare-pill i { font-size: 0.75rem; color: #f72585; cursor: pointer; transition: color 0.15s; }
+        .compare-pill i:hover { color: #ff4d94; }
+        .compare-actions { display: flex; gap: 12px; }
+        
+        .btn-compare-now {
+            background: #7209b7; color: #fff; border: none; padding: 8px 18px;
+            border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-compare-now:hover { background: #8a2be2; }
+        .btn-clear-all {
+            background: transparent; border: 1px solid rgba(255,255,255,0.15);
+            color: #888; padding: 8px 14px; border-radius: 6px; font-size: 0.85rem;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-clear-all:hover { border-color: #f72585; color: #f72585; }
+
+        .compare-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10, 10, 20, 0.95); z-index: 2000;
+            display: none; padding: 40px 20px; overflow-y: auto;
+        }
+        .compare-modal {
+            background: #16213e; max-width: 1200px; margin: 0 auto;
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+            overflow: hidden; display: flex; flex-direction: column;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+        }
+        .compare-modal-header {
+            padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.08);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .compare-modal-header h2 { font-size: 1.3rem; font-weight: 500; color: #00d9ff; }
+        .btn-close-modal {
+            background: transparent; border: none; color: #666;
+            font-size: 1.8rem; cursor: pointer; transition: color 0.2s;
+        }
+        .btn-close-modal:hover { color: #fff; }
+
+        .compare-table-wrap { overflow-x: auto; padding: 0; }
+        .compare-table { width: 100%; border-collapse: collapse; min-width: 800px; }
+        .compare-table th {
+            text-align: left; padding: 16px; color: #555; font-size: 0.7rem;
+            text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: rgba(0,0,0,0.2);
+        }
+        .compare-table td { padding: 18px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: top; }
+        .compare-table tr:last-child td { border-bottom: none; }
+
+        .comp-carrier-cell { margin-bottom: 4px; }
+        .comp-carrier-name { font-size: 1.1rem; font-weight: 600; color: #fff; }
+        .comp-carrier-code { font-size: 0.8rem; color: #888; }
+        .comp-score-val { font-size: 1.4rem; font-weight: 700; margin-bottom: 2px; }
+        .comp-metric-label { font-size: 0.65rem; color: #666; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+        .comp-metric-val { font-size: 1rem; font-weight: 500; color: #eee; }
+        .comp-sub-val { font-size: 0.78rem; color: #666; }
+
+        .modal-feedback {
+            margin-left: auto; margin-right: 20px; color: #4cc9f0;
+            font-size: 0.85rem; font-weight: 600; display: none;
+        }
+        .modal-actions { display: flex; gap: 10px; margin-right: 20px; }
+        .btn-modal-action {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            color: #aaa; padding: 6px 14px; border-radius: 6px; font-size: 0.8rem;
+            cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;
+        }
+        .btn-modal-action:hover { border-color: #7209b7; color: #fff; }
+
+        .card-actions {
+            margin-top: 16px; padding-top: 14px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .compare-limit-msg {
+            color: #f72585; font-size: 0.75rem; margin-left: 20px; display: none;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -396,6 +497,50 @@
         </div>
     </div>
 
+    <!-- Comparison Drawer -->
+    <div id="compare-bar" class="compare-bar">
+        <div class="compare-info">
+            <div class="compare-title">Carrier Comparison</div>
+            <div id="compare-limit-msg" class="compare-limit-msg">Compare up to 5 carriers at a time.</div>
+            <div id="compare-items" class="compare-items"></div>
+        </div>
+        <div class="compare-actions">
+            <button class="btn-clear-all" onclick="clearCompare()">Clear</button>
+            <button class="btn-compare-now" onclick="openCompareModal()">Compare Now</button>
+        </div>
+    </div>
+
+    <!-- Comparison Modal -->
+    <div id="compare-overlay" class="compare-overlay">
+        <div class="compare-modal">
+            <div class="compare-modal-header">
+                <h2>Airline Health Comparison</h2>
+                <div id="modal-feedback" class="modal-feedback"></div>
+                <div class="modal-actions">
+                    <button class="btn-modal-action" onclick="copyCompareSummary()">
+                        <i class="fas fa-copy"></i> Copy Summary
+                    </button>
+                    <button class="btn-modal-action" onclick="downloadCompareCSV()">
+                        <i class="fas fa-download"></i> Download CSV
+                    </button>
+                </div>
+                <button class="btn-close-modal" onclick="closeCompareModal()">&times;</button>
+            </div>
+            <div class="compare-table-wrap">
+                <table class="compare-table">
+                    <thead>
+                        <tr id="compare-thead-row">
+                            <!-- Headers will be inserted here -->
+                        </tr>
+                    </thead>
+                    <tbody id="compare-tbody">
+                        <!-- Comparison data will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
 <script>
 const API = '/api';
 let allAirlines = [];
@@ -403,6 +548,188 @@ let selectedCode = null;
 let detailCache = {};
 let activeTypeFilter = 'all';
 let activeHealthFilter = 'all';
+let compareList = [];
+
+// ── Comparison Logic ──────────────────────────────────────────────────
+function toggleCompare(code) {
+    const idx = compareList.findIndex(a => a.code === code);
+    if (idx >= 0) {
+        compareList.splice(idx, 1);
+        document.getElementById('compare-limit-msg').style.display = 'none';
+    } else {
+        if (compareList.length >= 5) {
+            const msg = document.getElementById('compare-limit-msg');
+            msg.style.display = 'block';
+            setTimeout(() => { msg.style.display = 'none'; }, 4000);
+            return;
+        }
+        const airline = allAirlines.find(a => a.code === code);
+        if (airline) compareList.push(airline);
+    }
+    updateCompareUI();
+    applyControls(); // Refresh grid to update button states
+}
+
+function clearCompare() {
+    compareList = [];
+    updateCompareUI();
+    applyControls();
+}
+
+function updateCompareUI() {
+    const bar = document.getElementById('compare-bar');
+    const items = document.getElementById('compare-items');
+
+    if (compareList.length === 0) {
+        bar.classList.remove('visible');
+        return;
+    }
+
+    items.innerHTML = compareList.map(a => `
+        <div class="compare-pill">
+            <span>${a.code}</span>
+            <i class="fas fa-times-circle" onclick="toggleCompare('${a.code}')"></i>
+        </div>
+    `).join('');
+
+    bar.classList.add('visible');
+}
+
+function openCompareModal() {
+    if (compareList.length === 0) return;
+    const overlay = document.getElementById('compare-overlay');
+    const thead = document.getElementById('compare-thead-row');
+    const tbody = document.getElementById('compare-tbody');
+
+    // Build Headers
+    thead.innerHTML = '<th>Carrier</th>' + compareList.map(a => `
+        <th>
+            <div class="comp-carrier-cell">
+                <div class="comp-carrier-name">${a.name}</div>
+                <div class="comp-carrier-code">${a.code}</div>
+            </div>
+        </th>
+    `).join('');
+
+    // Define rows
+    const rows = [
+        { label: 'Health Score', fn: a => {
+            const s = healthScore(a);
+            return `<div class="comp-score-val" style="color:${scoreColor(s)}">${s}/100</div>`;
+        }},
+        { label: 'Public Filing Context', fn: a => `
+            <div class="comp-metric-label">Latest Snapshot</div>
+            <div class="comp-metric-val">Q${a.fin_quarter} ${a.fin_year}</div>
+            <div class="comp-metric-label" style="margin-top:8px">Shareholders Equity</div>
+            <div class="comp-metric-val" style="color:${a.shareholders_equity < 0 ? '#f72585' : '#4cc9f0'}">${fmtMoney(a.shareholders_equity)}</div>
+        `},
+        { label: 'Operating Indicators', fn: a => `
+            <div class="comp-metric-label">Operating Expense</div>
+            <div class="comp-metric-val">${fmtMoney(a.operating_expense)}</div>
+            <div class="comp-metric-label" style="margin-top:8px">On-Time Performance</div>
+            <div class="comp-metric-val">${pct(a.on_time, a.total_flights) ?? '—'}%</div>
+            <div class="comp-sub-val">${fmtNum(a.on_time)} of ${fmtNum(a.total_flights)} flights</div>
+        `},
+        { label: 'Network Context', fn: a => `
+            <div class="comp-metric-label">Total Routes</div>
+            <div class="comp-metric-val">${fmtNum(a.route_count)}</div>
+            <div class="comp-metric-label" style="margin-top:8px">Total Passengers</div>
+            <div class="comp-metric-val">${fmtNum(a.total_passengers)}</div>
+        `},
+        { label: 'Workforce/Fleet Context', fn: a => `
+            <div class="comp-metric-label">Headcount (${a.emp_year})</div>
+            <div class="comp-metric-val">${fmtNum(a.emp_total)}</div>
+            <div class="comp-metric-label" style="margin-top:8px">Quarterly Comp</div>
+            <div class="comp-metric-val">${fmtMoney(a.total_compensation)}</div>
+        `},
+        { label: 'Data Notes', fn: a => `
+            <div style="font-size:0.7rem;color:#666;line-height:1.3;font-style:italic;">
+                Carrier health indicators are directional public-data context only and are not financial, employment, or operational advice.
+            </div>
+        `}
+    ];
+
+    tbody.innerHTML = rows.map(r => `
+        <tr>
+            <td style="font-weight:600;color:#888;font-size:0.75rem;text-transform:uppercase;">${r.label}</td>
+            ${compareList.map(a => `<td>${r.fn(a)}</td>`).join('')}
+        </tr>
+    `).join('');
+
+    overlay.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeCompareModal() {
+    document.getElementById('compare-overlay').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function showModalFeedback(msg) {
+    const el = document.getElementById('modal-feedback');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+function copyCompareSummary() {
+    if (compareList.length === 0) return;
+    let text = 'FlightConn Airline Health Comparison\n\n';
+
+    compareList.forEach(a => {
+        const score = healthScore(a);
+        text += `${a.name} (${a.code})\n`;
+        text += `- Health Score: ${score}/100\n`;
+        text += `- Filing: Q${a.fin_quarter} ${a.fin_year}\n`;
+        text += `- Shareholders Equity: ${fmtMoney(a.shareholders_equity)}\n`;
+        text += `- Headcount: ${fmtNum(a.emp_total)} (${a.emp_year})\n`;
+        text += `- On-Time Performance: ${pct(a.on_time, a.total_flights) ?? '—'}%\n`;
+        text += `- Total Passengers: ${fmtNum(a.total_passengers)}\n`;
+        text += '\n';
+    });
+
+    text += 'Carrier health indicators are directional public-data context only and are not financial, employment, or operational advice.';
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showModalFeedback('Summary copied');
+        }).catch(() => {
+            showModalFeedback('Copy failed');
+        });
+    }
+}
+
+function downloadCompareCSV() {
+    if (compareList.length === 0) return;
+    const headers = ['Carrier', 'Code', 'Health Score', 'Filing Period', 'Shareholders Equity', 'Headcount', 'Headcount Year', 'On-Time %', 'Total Passengers', 'Route Count', 'Advisory Note'];
+    const rows = compareList.map(a => [
+        a.name, a.code, healthScore(a),
+        `Q${a.fin_quarter} ${a.fin_year}`,
+        a.shareholders_equity || 0,
+        a.emp_total || 0, a.emp_year || '',
+        pct(a.on_time, a.total_flights) || 0,
+        a.total_passengers || 0,
+        a.route_count || 0,
+        'Carrier health indicators are directional public-data context only and are not financial, employment, or operational advice.'
+    ]);
+
+    const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `flightconn-airline-compare-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showModalFeedback('CSV downloaded');
+}
 
 // ── Formatting helpers ────────────────────────────────────────────────
 function fmtNum(n, decimals = 0) {
@@ -471,8 +798,10 @@ function renderGrid(airlines) {
             typeBadge = `<span class="carrier-type-badge badge-charter"><i class="fas fa-star"></i>Charter</span>`;
         }
 
+        const isCompared = compareList.some(c => c.code === a.code);
+
         const card = document.createElement('div');
-        card.className = 'airline-card';
+        card.className = `airline-card ${isCompared ? 'selected' : ''}`;
         card.dataset.code = a.code;
         card.innerHTML = `
             <div class="card-header">
@@ -513,6 +842,13 @@ function renderGrid(airlines) {
                 <span><span class="legend-dot" style="background:#f0a500"></span>${delPct}% delayed</span>
                 <span><span class="legend-dot" style="background:#f72585"></span>${canPct}% cancelled</span>
             </div>` : ''}
+            <div class="card-actions">
+                <span style="font-size:0.7rem;color:#666">BTS Form 41 context</span>
+                <button class="filter-btn ${isCompared ? 'active' : ''}" 
+                        onclick="event.stopPropagation(); toggleCompare('${a.code}')">
+                    <i class="fas ${isCompared ? 'fa-check' : 'fa-plus'}"></i> ${isCompared ? 'Added' : 'Compare'}
+                </button>
+            </div>
         `;
         card.addEventListener('click', () => openDetail(a.code, a.name));
         grid.appendChild(card);
