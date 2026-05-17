@@ -6,6 +6,23 @@ A self-hosted airline route and intelligence tool built from Bureau of Transport
 
 ## Quick Start
 
+**Linux** — [Docker Engine](https://docs.docker.com/engine/install/) + Docker Compose plugin:
+```bash
+# Example for Ubuntu/Debian
+curl -fsSL https://get.docker.com | sudo sh
+```
+
+### 2. Verify Docker
+
+```bash
+docker --version
+docker compose version
+```
+
+Both commands must succeed before proceeding.
+
+### 3. Clone, configure, and run
+
 ```bash
 git clone https://github.com/ApiFlier/aviation-route-intelligence.git flightconn
 cd flightconn
