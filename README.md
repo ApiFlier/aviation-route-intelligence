@@ -11,6 +11,8 @@ A self-hosted airline route and intelligence tool built from Bureau of Transport
 ```bash
 # Example for Ubuntu/Debian
 curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
 ### 2. Verify Docker
