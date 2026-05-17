@@ -6,6 +6,7 @@ A self-hosted airline route and intelligence tool built from Bureau of Transport
 
 ## Quick Start
 
+### 1. Install Docker
 **Linux** — [Docker Engine](https://docs.docker.com/engine/install/) + Docker Compose plugin:
 ```bash
 # Example for Ubuntu/Debian
