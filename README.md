@@ -24,23 +24,26 @@ docker compose version
 
 Both commands must succeed before proceeding.
 
-### 3. Clone, configure, and run
+### 3. Clone and run
 
 ```bash
 git clone https://github.com/ApiFlier/aviation-route-intelligence.git flightconn
 cd flightconn
-chmod +x setup.sh
-./setup.sh
+chmod +x menu.sh
+./menu.sh
 ```
 
+`./menu.sh` is the normal entry point. From there you can set up the app, update it, configure optional credentials, check status, and troubleshoot problems.
+
+To set up for the first time, select **option 1** from the menu. If you want to pre-configure optional FAA SWIM credentials before setup, copy `deploy.env.example` to `deploy.env` and fill in your credentials first:
+
 ```bash
-git clone https://github.com/ApiFlier/aviation-route-intelligence.git flightconn
-cd flightconn
 cp deploy.env.example deploy.env
-nano deploy.env
-chmod +x setup.sh
-./setup.sh
+nano deploy.env   # fill in FAA_USER, FAA_PASS, QUEUE_* if you have them
+./menu.sh         # then choose option 1 to set up
 ```
+
+You can also run `./setup.sh` directly if you prefer.
 
 `setup.sh` handles everything automatically:
 - Generates `.env` with random credentials (no manual config needed)
@@ -338,8 +341,11 @@ cp deploy.env.example deploy.env
 #   FAA_PASS=your-faa-password
 #   QUEUE_SFDPS=your-sfdps-queue-name   (from FAA after account setup)
 
-# 3. Re-run setup — it detects the credentials and starts the sidecar automatically.
-./setup.sh
+# 3. Update credentials through the menu (option 3), then update (option 2):
+./menu.sh
+# or apply directly:
+./setup.sh   # first-time SWIM enable
+./update.sh  # if already set up, update to apply credential changes
 ```
 
 `setup.sh` detects SWIM readiness automatically:
@@ -427,7 +433,13 @@ curl http://localhost:<PORT>/api/routes/opportunities?limit=3
 
 ## Updates & Maintenance
 
-FlightConn uses a simplified three-script maintenance model to keep your instance current while protecting core data.
+The normal way to manage FlightConn is `./menu.sh`. It provides options for setup, updates, credential management, status, and troubleshooting in one place.
+
+```bash
+./menu.sh
+```
+
+The individual scripts can also be run directly when needed.
 
 ### 1. Update (`./update.sh`)
 
@@ -435,14 +447,16 @@ Use this for standard production updates. It pulls the latest code, rebuilds con
 
 ```bash
 ./update.sh
+# or: ./menu.sh  →  option 2
 ```
 
 **What it does:**
 - Runs a safe disk cleanup (pruning build cache and dangling images).
-- Pulls the latest code from GitHub (aborts if you have local changes).
+- Pulls the latest code from GitHub (aborts if you have local changes; use `--force` to override).
 - Rebuilds and restarts containers with `docker compose up -d --build`.
 - Verifies app health and SWIM freshness.
-- **Note:** This script does *not* create routine database backups.
+- Prints final URLs when complete.
+- **Note:** This script does *not* create routine database backups. Run `./backup.sh` before major updates.
 
 ### 2. Baseline Backup (`./backup.sh`)
 
@@ -470,6 +484,37 @@ Use this for fresh installs or when you need to rebuild the environment from scr
 - **Disk Preflight:** Checks for sufficient free space (100GB min, 150GB recommended).
 - **Baseline Restore:** If `api/Data/flightconn-baseline.sql.gz` exists, it asks whether to restore it.
 - **Source Cleanup:** After a successful setup, it offers to delete the local source files.
+
+---
+
+## Troubleshooting
+
+Run the built-in troubleshoot script from the menu or directly:
+
+```bash
+./menu.sh        # → option 5
+# or directly:
+./scripts/troubleshoot.sh
+```
+
+It checks Docker, containers, health endpoints, and offers guided repair options. No data is deleted.
+
+**Common issues:**
+
+| Problem | Fix |
+|---|---|
+| App not responding | Run troubleshoot → restart app container |
+| DB not healthy | Run troubleshoot → restart app + DB |
+| SWIM not running after credentials added | Re-run `./setup.sh` or `./update.sh` |
+| Port conflict on setup | `setup.sh` auto-selects the next free port |
+| `.env` missing but DB volume exists | Follow Option A or B shown by `setup.sh` |
+
+**Manual log checks:**
+```bash
+docker compose logs --tail=60 app
+docker compose logs --tail=30 db
+docker compose logs --tail=60 swim-ingestor
+```
 
 ---
 

@@ -101,9 +101,14 @@ git_pull() {
     local status
     status=$(git status --porcelain)
     if [ -n "$status" ] && [ "${FORCE_UPDATE:-false}" != "true" ]; then
-        log_error "Working tree is dirty. Please commit or stash changes."
-        log_error "Or use --force to override."
+        log_error "Working tree is dirty. Please commit or stash changes first."
+        log_error "  To stash:  git stash"
+        log_error "  To force:  ./update.sh --force  (discards local changes)"
         exit 1
+    fi
+    if [ "${FORCE_UPDATE}" = "true" ] && [ -n "$status" ]; then
+        log_warn "--force: discarding local changes and forcing fast-forward pull."
+        git checkout -- .
     fi
 
     log_info "Pulling latest code..."
@@ -114,8 +119,9 @@ git_pull() {
     local remote="${upstream%%/*}"
     local branch="${upstream#*/}"
 
-    if ! git pull "$remote" "$branch"; then
-        log_error "Git pull failed."
+    if ! git pull --ff-only "$remote" "$branch"; then
+        log_error "Git pull failed (non-fast-forward or network error)."
+        log_error "  Check: git status, git log --oneline -5"
         exit 1
     fi
 }
@@ -133,26 +139,53 @@ done
 check_docker
 load_env
 
+echo "============================================="
+echo "  FlightConn Update"
+echo "============================================="
+echo ""
+
 # 1. Disk Cleanup before
 "${REPO_DIR}/scripts/health-cleanup.sh"
 
-# 2. Git Pull
+# 2. Pre-update backup reminder (shown before pull so user can still act on it)
+if [ -f "${REPO_DIR}/backup.sh" ] && \
+   [ "$(docker inspect -f '{{.State.Running}}' flightconn-db 2>/dev/null || echo false)" = "true" ]; then
+    log_info "Tip: Run ./backup.sh before major updates to refresh the baseline database backup."
+fi
+
+# 3. Git Pull
 git_pull
 
-# 3. Update Containers
+# 4. Update Containers
 log_info "Updating containers..."
 SWIM_OPTS=$(detect_swim)
 # shellcheck disable=SC2086
 if ! docker compose $SWIM_OPTS up -d --build; then
     log_error "Docker Compose update failed."
+    log_error "  Check logs: docker compose logs --tail=60 app"
     exit 1
 fi
 
-# 4. Health Check
+# 5. Health Check
 check_health
 
-# 5. Disk Cleanup after
+# 6. Disk Cleanup after
 "${REPO_DIR}/scripts/health-cleanup.sh"
 
+APP_PORT="${APP_PORT:-8082}"
+
+echo ""
+echo "============================================="
 log_info "Update successful!"
+echo ""
+echo "  URL:            http://localhost:${APP_PORT}/"
+echo "  Opportunities:  http://localhost:${APP_PORT}/opportunities/"
+echo "  Airline Health: http://localhost:${APP_PORT}/airline-health/"
+echo "  System Health:  http://localhost:${APP_PORT}/recent-activity-health/"
+echo "  API:            http://localhost:${APP_PORT}/api"
+echo "============================================="
+echo ""
+log_info "To update credentials or data-source config: ./menu.sh  (option 3)"
+log_info "To troubleshoot:                             ./menu.sh  (option 5)"
+echo ""
 docker ps --filter "name=flightconn"

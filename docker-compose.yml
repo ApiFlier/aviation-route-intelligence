@@ -2,6 +2,11 @@ services:
   db:
     image: mysql:8.0
     container_name: flightconn-db
+    # 512M buffer pool prevents InnoDB lock table overflow (error 1206) during
+    # large SWIM aggregation transactions. Reduce to 256M on hosts with <4GB RAM.
+    command: >
+      --innodb-buffer-pool-size=512M
+      --innodb-log-file-size=256M
     logging:
       driver: "json-file"
       options:

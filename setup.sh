@@ -422,6 +422,7 @@ if [ "$SWIM_READY" = "true" ]; then
 fi
 echo ""
 echo "Useful commands:"
+echo "  ./menu.sh            # Main menu: update, credentials, status, troubleshoot"
 echo "  ./update.sh          # Rebuild after code changes"
 echo "  ./backup.sh          # Refresh the repo baseline backup"
 echo "  docker compose logs -f"
